@@ -66,7 +66,7 @@ class Config:
         }
         
         config['PERFORMANCE'] = {
-            'max_workers': '4',
+            'max_workers': '2',
             'segment_length_ms': '60000',
             'vad_enabled': 'true',
             'beam_size': '5',

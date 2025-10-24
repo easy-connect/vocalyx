@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>Vocalyx - Transcriptions Dashboard</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.css">
 <style>
     :root {
         --primary: #4a90e2;
@@ -95,6 +95,7 @@
         gap: 1rem;
         justify-content: center;
         padding: 1rem;
+        min-height: 200px;
     }
     .card {
         background: white;
@@ -152,6 +153,7 @@
     }
     .status-processing .status-badge {
         background: linear-gradient(45deg, var(--warning), #ffd966);
+        animation: pulse 2s infinite;
     }
     .status-processing .status-badge::after {
         content: "En cours";
@@ -167,6 +169,10 @@
     }
     .status-error .status-badge::after {
         content: "Erreur";
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
     }
     .card h3 {
         margin-top: 0;
@@ -192,7 +198,6 @@
         cursor: pointer;
         transition: all 0.3s;
     }
-    /* Modal styles */
     .modal {
         display: none;
         position: fixed;
@@ -248,7 +253,6 @@
         from { transform: scale(0.95); }
         to { transform: scale(1); }
     }
-    /* Pagination */
     .pagination {
         display: flex;
         justify-content: center;
@@ -261,19 +265,49 @@
         border-radius: 6px;
         background: var(--light);
         cursor: pointer;
+        transition: all 0.3s;
+    }
+    .pagination button:hover {
+        background: #d0d0d0;
     }
     .pagination button.active {
         background: var(--primary);
         color: white;
     }
-    /* Focus styles */
     button:focus, [tabindex="0"]:focus {
         outline: 2px solid var(--primary);
         outline-offset: 2px;
     }
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255,255,255,0.8);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    }
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid var(--primary);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
 </style>
 </head>
 <body>
+<div class="loading-overlay" id="loading-overlay">
+    <div class="spinner"></div>
+</div>
 <header>
     <div class="filters">
         <label for="status-filter">Statut:</label>
@@ -299,41 +333,21 @@
     </div>
 </header>
 <h1>Transcriptions récentes</h1>
-<div class="cards" id="cards-container">
-    {% for entry in entries %}
-    <div class="card status-{{ entry.status or 'unknown' }}" data-id="{{ entry.id }}">
-        <div class="status-badge"></div>
-        <h3>ID: {{ entry.id or '-' }}</h3>
-        <p><strong>Statut:</strong> <span class="status-text">{{ entry.status or '-' }}</span></p>
-        <p><strong>Langue:</strong> {{ entry.language or 'inconnu' }}</p>
-        <p><strong>Durée:</strong> {{ entry.duration if entry.duration is not none else '-' }}s</p>
-        <p><strong>Créé:</strong> <span class="created">{{ entry.created_at or '-' }}</span></p>
-        <p><strong>Aperçu:</strong> {{ (entry.text[:100] if entry.text else '') ~ ('...' if entry.text and entry.text|length > 100 else '') }}</p>
-        <div class="card-buttons">
-            <button class="btn-detail btn btn-primary">Détails</button>
-            <button class="btn-delete btn btn-danger">Supprimer</button>
-        </div>
-    </div>
-    {% endfor %}
-</div>
-<div class="pagination" id="pagination">
-    <button class="active" data-page="1">1</button>
-</div>
-<!-- Modal -->
+<div class="cards" id="cards-container"></div>
+<div class="pagination" id="pagination"></div>
 <div id="modal" class="modal">
     <div class="modal-content">
         <span class="close">&times;</span>
-        <div id="modal-body">
-            <div style="text-align:center;padding:2rem;">
-                <div class="spinner"></div>
-                <p>Chargement...</p>
-            </div>
-        </div>
+        <div id="modal-body"></div>
     </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
 <script>
-    // --- Helper functions ---
+    // État global
+    let currentPage = 1;
+    let currentLimit = 10;
+    let pollingInterval = null;
+
     function formatHumanDate(isoString) {
         if (!isoString) return '-';
         const d = new Date(isoString);
@@ -342,6 +356,7 @@
             hour: '2-digit', minute: '2-digit', second: '2-digit'
         });
     }
+
     function showToast(message, type="success") {
         toastr.options = {
             positionClass: "toast-top-right",
@@ -350,33 +365,39 @@
         };
         toastr[type](message);
     }
-    // --- Modal logic ---
+
     const modal = document.getElementById("modal");
     const modalBody = document.getElementById("modal-body");
     const spanClose = document.querySelector(".close");
+
     function openModal() {
         modal.style.display = "block";
         document.body.style.overflow = "hidden";
         document.addEventListener("keydown", handleKeyDown);
     }
+
     function closeModal() {
         modal.style.display = "none";
         document.body.style.overflow = "";
         document.removeEventListener("keydown", handleKeyDown);
     }
+
     function handleKeyDown(e) {
         if (e.key === "Escape") closeModal();
     }
+
     spanClose.onclick = closeModal;
     window.onclick = (event) => {
         if (event.target == modal) closeModal();
     };
+
     function renderTranscriptionModal(data) {
         const segmentsHtml = (data.segments || []).map(seg => `
             <div class="segment" data-start="${seg.start}" tabindex="0">
                 <strong>[${seg.start} - ${seg.end}]</strong> ${seg.text || ''}
             </div>
         `).join('');
+        
         modalBody.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
                 <h2>Détails de la transcription</h2>
@@ -402,7 +423,7 @@
             </div>
             <div style="display:flex;gap:1rem;flex-wrap:wrap;">
                 <div class="segments-panel" style="width:280px;max-height:70vh;overflow-y:auto;background:white;padding:1rem;border-radius:12px;box-shadow:0 6px 12px rgba(0,0,0,0.1);">
-                    <h3>Segments</h3>
+                    <h3>Segments (${data.segments_count || 0})</h3>
                     ${segmentsHtml || '<p>Aucun segment disponible.</p>'}
                 </div>
                 <div class="text-panel" style="flex:1;max-height:70vh;overflow-y:auto;background:white;padding:1rem;border-radius:12px;box-shadow:0 6px 12px rgba(0,0,0,0.1);">
@@ -414,7 +435,7 @@
                 </div>
             </div>
         `;
-        // Highlight segment on click
+        
         document.querySelectorAll(".segment").forEach(seg => {
             seg.addEventListener("click", () => {
                 document.querySelectorAll(".segment").forEach(s => s.style.background = "");
@@ -422,10 +443,11 @@
             });
         });
     }
-    // --- Card events ---
+
     function attachDetailEvents() {
         document.querySelectorAll(".btn-detail").forEach(btn => {
             btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
                 const card = e.target.closest(".card");
                 const id = card.dataset.id;
                 openModal();
@@ -451,38 +473,69 @@
             });
         });
     }
+
     function attachDeleteEvents() {
         document.querySelectorAll(".btn-delete").forEach(btn => {
             btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
                 const card = e.target.closest(".card");
                 const id = card.dataset.id;
-                if (!confirm(`Supprimer la transcription ${id} ?`)) return;
+                if (!confirm(`Supprimer la transcription ${id.substring(0, 8)}... ?`)) return;
+                
                 try {
                     const resp = await fetch(`/transcribe/${id}`, { method: "DELETE" });
                     if (!resp.ok) throw new Error(await resp.text());
-                    showToast(`Transcription ${id} supprimée !`, "success");
-                    refreshCards();
+                    showToast(`Transcription supprimée !`, "success");
+                    
+                    // Animation de suppression
+                    card.style.transition = "opacity 0.3s, transform 0.3s";
+                    card.style.opacity = "0";
+                    card.style.transform = "scale(0.8)";
+                    
+                    setTimeout(() => {
+                        refreshCards(currentPage, currentLimit);
+                    }, 300);
                 } catch (err) {
                     showToast(`Erreur: ${err.message}`, "error");
                 }
             });
         });
     }
-    // --- Refresh cards ---
-    async function refreshCards(page=1, limit=10, status="", search="") {
+
+    async function refreshCards(page=1, limit=10) {
+        const status = document.getElementById("status-filter").value;
+        const search = document.getElementById("search-input").value;
+        
+        currentPage = page;
+        currentLimit = limit;
+        
         try {
             let url = `/transcribe/recent?limit=${limit}&page=${page}`;
             if (status) url += `&status=${status}`;
             if (search) url += `&search=${encodeURIComponent(search)}`;
+            
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`HTTP error! status: ${resp.status}`);
             const entries = await resp.json();
+            
+            // Récupérer le total pour la pagination
+            let countUrl = `/transcribe/count?`;
+            if (status) countUrl += `status=${status}&`;
+            if (search) countUrl += `search=${encodeURIComponent(search)}`;
+            
+            const countResp = await fetch(countUrl);
+            const countData = await countResp.json();
+            const totalPages = Math.ceil(countData.total / limit);
+            
             const container = document.getElementById("cards-container");
             container.innerHTML = "";
+            
             if (entries.length === 0) {
                 container.innerHTML = `<div style="text-align:center;width:100%;padding:2rem;">Aucune transcription trouvée.</div>`;
+                updatePagination(page, 0);
                 return;
             }
+            
             const fragment = document.createDocumentFragment();
             entries.forEach((entry, i) => {
                 const card = document.createElement("div");
@@ -490,12 +543,12 @@
                 card.dataset.id = entry.id;
                 card.innerHTML = `
                     <div class="status-badge"></div>
-                    <h3>ID: ${entry.id || '-'}</h3>
+                    <h3>ID: ${entry.id.substring(0, 8)}...</h3>
                     <p><strong>Statut:</strong> <span class="status-text">${entry.status || '-'}</span></p>
                     <p><strong>Langue:</strong> ${entry.language || 'inconnu'}</p>
                     <p><strong>Durée:</strong> ${entry.duration ?? '-'}s</p>
                     <p><strong>Créé:</strong> ${formatHumanDate(entry.created_at)}</p>
-                    <p><strong>Aperçu:</strong> ${entry.text ? entry.text.substring(0, 100) + (entry.text.length > 100 ? '...' : '') : ''}</p>
+                    <p><strong>Aperçu:</strong> ${entry.text ? entry.text.substring(0, 100) + (entry.text.length > 100 ? '...' : '') : '-'}</p>
                     <div class="card-buttons">
                         <button class="btn-detail btn btn-primary">Détails</button>
                         <button class="btn-delete btn btn-danger">Supprimer</button>
@@ -504,39 +557,51 @@
                 fragment.appendChild(card);
                 setTimeout(() => card.classList.add('visible'), i * 50);
             });
+            
             container.appendChild(fragment);
             attachDetailEvents();
             attachDeleteEvents();
-            updatePagination(page, Math.ceil(entries.length / limit));
+            updatePagination(page, totalPages);
+            
         } catch (err) {
             console.error("Erreur:", err);
             document.getElementById("cards-container").innerHTML =
                 `<div style="color:red;text-align:center;padding:2rem;">Erreur de chargement. Veuillez réessayer.</div>`;
         }
     }
+
     function updatePagination(currentPage, totalPages) {
         const pagination = document.getElementById("pagination");
         pagination.innerHTML = "";
+        
+        if (totalPages <= 1) return;
+        
         for (let i = 1; i <= totalPages; i++) {
             const btn = document.createElement("button");
             btn.textContent = i;
             btn.dataset.page = i;
             if (i === currentPage) btn.classList.add("active");
             btn.addEventListener("click", () => {
-                refreshCards(i);
+                refreshCards(i, currentLimit);
             });
             pagination.appendChild(btn);
         }
     }
-    // --- Upload logic ---
+
     document.getElementById("upload-btn").addEventListener("click", () => {
         document.getElementById("upload-input").click();
     });
+
     document.getElementById("upload-input").addEventListener("change", async (event) => {
         const file = event.target.files[0];
         if (!file) return;
+        
         const formData = new FormData();
         formData.append("file", file);
+        
+        const loadingOverlay = document.getElementById("loading-overlay");
+        loadingOverlay.style.display = "flex";
+        
         try {
             const resp = await fetch("/transcribe", {
                 method: "POST",
@@ -544,15 +609,19 @@
             });
             if (!resp.ok) throw new Error(await resp.text());
             const data = await resp.json();
-            showToast(`✅ Upload réussi ! ID: ${data.transcription_id}`, "success");
-            refreshCards();
+            showToast(`✅ Upload réussi ! ID: ${data.transcription_id.substring(0, 8)}...`, "success");
+            
+            // Rafraîchir immédiatement
+            await refreshCards(1, currentLimit);
+            
         } catch (err) {
             showToast(`❌ Erreur: ${err.message}`, "error");
         } finally {
+            loadingOverlay.style.display = "none";
             event.target.value = "";
         }
     });
-    // --- Export logic ---
+
     document.getElementById("export-btn").addEventListener("click", async () => {
         try {
             const resp = await fetch("/transcribe/export");
@@ -569,14 +638,15 @@
             showToast(`Erreur: ${err.message}`, "error");
         }
     });
-    // --- Search and filter ---
+
     document.getElementById("status-filter").addEventListener("change", () => {
-        refreshCards(1, 10, document.getElementById("status-filter").value, document.getElementById("search-input").value);
+        refreshCards(1, currentLimit);
     });
+
     document.getElementById("search-input").addEventListener("input", () => {
-        refreshCards(1, 10, document.getElementById("status-filter").value, document.getElementById("search-input").value);
+        refreshCards(1, currentLimit);
     });
-    // --- Current time ---
+
     function updateCurrentTime() {
         const now = new Date();
         document.getElementById("current-time").textContent = now.toLocaleString('fr-FR', {
@@ -584,11 +654,84 @@
             hour: '2-digit', minute: '2-digit', second: '2-digit'
         });
     }
+    
     setInterval(updateCurrentTime, 1000);
     updateCurrentTime();
-    // --- Initial load ---
-    refreshCards();
-    setInterval(() => refreshCards(1, 10, document.getElementById("status-filter").value, document.getElementById("search-input").value), 30000);
+
+    // Polling intelligent
+    function startPolling() {
+        if (pollingInterval) clearInterval(pollingInterval);
+        
+        pollingInterval = setInterval(async () => {
+            // Ne pas rafraîchir si la modal est ouverte
+            if (modal.style.display === "block") return;
+            
+            // Rafraîchir sans animation pour le polling
+            const status = document.getElementById("status-filter").value;
+            const search = document.getElementById("search-input").value;
+            
+            try {
+                let url = `/transcribe/recent?limit=${currentLimit}&page=${currentPage}`;
+                if (status) url += `&status=${status}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+                
+                const resp = await fetch(url);
+                if (!resp.ok) return;
+                const entries = await resp.json();
+                
+                const container = document.getElementById("cards-container");
+                const existingIds = new Set(
+                    Array.from(container.querySelectorAll('.card')).map(c => c.dataset.id)
+                );
+                
+                const newIds = new Set(entries.map(e => e.id));
+                
+                // Vérifier s'il y a des changements
+                const hasChanges = 
+                    existingIds.size !== newIds.size || 
+                    ![...existingIds].every(id => newIds.has(id));
+                
+                if (hasChanges) {
+                    console.log('🔄 Changements détectés, rafraîchissement...');
+                    await refreshCards(currentPage, currentLimit);
+                } else {
+                    // Mettre à jour uniquement les statuts si nécessaire
+                    entries.forEach(entry => {
+                        const card = container.querySelector(`[data-id="${entry.id}"]`);
+                        if (card) {
+                            const statusText = card.querySelector('.status-text');
+                            if (statusText && statusText.textContent !== entry.status) {
+                                // Statut changé, rafraîchir complètement
+                                refreshCards(currentPage, currentLimit);
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('Erreur polling:', err);
+            }
+        }, 5000); // Polling toutes les 5 secondes
+    }
+
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+    }
+
+    // Démarrer le polling au chargement
+    refreshCards(1, currentLimit);
+    startPolling();
+
+    // Arrêter le polling quand la page est cachée
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopPolling();
+        } else {
+            startPolling();
+        }
+    });
 </script>
 </body>
 </html>

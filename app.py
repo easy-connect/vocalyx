@@ -22,9 +22,10 @@ from typing import Optional, List, Tuple
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Float, Text, Enum, DateTime, Integer
+from sqlalchemy import create_engine, Column, String, Float, Text, Enum, DateTime, Integer, func
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
@@ -233,6 +234,7 @@ app = FastAPI(
     contact={"name": "Guilhem RICHARD", "email": "guilhem.l.richard@gmail.com"},
     lifespan=lifespan
 )
+app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -607,6 +609,32 @@ async def create_transcription(
 
     return {"transcription_id": transcription_id, "status": "pending"}
 
+
+@app.get("/transcribe/count", tags=["Transcriptions"])
+def get_transcription_count(db: Session = Depends(get_db)):
+    """
+    Retourne le nombre total de transcriptions et leur répartition par statut.
+    Exemple de réponse :
+    {
+        "total": 42,
+        "pending": 5,
+        "processing": 2,
+        "done": 33,
+        "error": 2
+    }
+    """
+    counts = (
+        db.query(Transcription.status, func.count(Transcription.id))
+        .group_by(Transcription.status)
+        .all()
+    )
+
+    result = {"total": 0, "pending": 0, "processing": 0, "done": 0, "error": 0}
+    for status, count in counts:
+        result[status] = count
+        result["total"] += count
+
+    return result
 
 @app.get("/transcribe/recent", response_model=List[TranscriptionResult], tags=["Transcriptions"])
 def get_recent_transcriptions(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):

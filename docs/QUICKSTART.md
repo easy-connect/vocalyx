@@ -1,6 +1,6 @@
 # 🚀 Vocalyx - Guide de Démarrage Rapide
 
-## Installation en 3 minutes ⏱️
+## Installation en 5 minutes ⏱️
 
 ### 1. Prérequis
 ```bash
@@ -12,21 +12,27 @@ sudo apt install ffmpeg libsndfile1  # Ubuntu/Debian
 brew install ffmpeg libsndfile       # macOS
 ```
 
-### 2. Installation
+### 2. Installation Complète
+
 ```bash
 # Méthode 1: Avec Make (recommandé)
-make install
-make config-balanced  # Applique la config recommandée
-make run
+make install-all          # Installe transcription + enrichissement
+make download-model       # Télécharge le modèle LLM (4GB)
+make config-balanced      # Applique la config recommandée
+bash scripts/add_enrichment_config.sh  # Ajoute config enrichissement
+make db-migrate          # Crée les tables
+make run-all             # Lance API + Worker
 
 # Méthode 2: Manuel
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-python app.py
+pip install -r requirements-transcribe.txt
+pip install -r requirements-enrichment.txt
+python app.py & python run_enrichment.py
 ```
 
-### 3. Test
+### 3. Test Rapide
+
 ```bash
 # Ouvrir le dashboard
 open http://localhost:8000/dashboard
@@ -35,7 +41,7 @@ open http://localhost:8000/dashboard
 make test-file FILE=mon_audio.wav
 
 # Ou via cURL
-curl -X POST "http://localhost:8000/transcribe" \
+curl -X POST "http://localhost:8000/api/transcribe" \
   -F "file=@mon_audio.wav"
 ```
 
@@ -47,26 +53,34 @@ curl -X POST "http://localhost:8000/transcribe" \
 # Voir toutes les commandes disponibles
 make help
 
-# Lancer l'application
-make run              # Production
-make dev              # Développement (auto-reload)
+# === LANCEMENT ===
+make run              # API uniquement (transcription)
+make run-enrichment   # Worker LLM uniquement
+make run-all          # API + Worker (COMPLET)
+make dev              # Mode développement (auto-reload)
 
-# Configuration
+# === CONFIGURATION ===
 make config           # Voir la config
-make config-balanced  # Preset recommandé
-make config-speed     # Preset rapide
-make config-accuracy  # Preset précision
+make config-balanced  # Preset recommandé (production)
+make config-speed     # Preset rapide (tests)
+make config-accuracy  # Preset précision (qualité max)
 
-# Tests
-make test                          # Test automatique
+# === TESTS ===
+make test                          # Test automatique complet
 make test-file FILE=audio.wav      # Test avec fichier
+make test-enrich                   # Test enrichissement
 
-# Statistiques & Nettoyage
-make stats            # Stats de la DB
+# === BASE DE DONNÉES ===
+make db-stats         # Stats de la DB
+make db-migrate       # Créer tables enrichment
 make clean-db         # Nettoyer (>30 jours)
 make clean-errors     # Supprimer les erreurs
 
-# Vérifications
+# === MODÈLES LLM ===
+make download-model   # Télécharger Mistral 7B (recommandé)
+make list-models      # Lister modèles téléchargés
+
+# === VÉRIFICATIONS ===
 make check            # Vérifier l'installation
 make info             # Infos système
 make urls             # Afficher les URLs utiles
@@ -76,25 +90,25 @@ make urls             # Afficher les URLs utiles
 
 ## ⚙️ Configuration Rapide
 
-### Choix du modèle selon vos besoins
+### Choix du preset selon vos besoins
 
-| Besoin | Commande | Modèle | Vitesse |
-|--------|----------|--------|---------|
-| 🚀 Maximum de vitesse | `make config-speed` | tiny | 30-50x |
-| ⚖️ Production standard | `make config-balanced` | small | 5-10x |
-| 🎯 Maximum de précision | `make config-accuracy` | medium | 2-4x |
+| Besoin | Commande | Transcription | Enrichissement |
+|--------|----------|---------------|----------------|
+| 🚀 Vitesse max | `make config-speed` | tiny (30-50x) | Q4 + threads++ |
+| ⚖️ Production | `make config-balanced` | small (5-10x) | Q4 équilibré ✅ |
+| 🎯 Qualité max | `make config-accuracy` | medium (2-4x) | Q5 + contexte++ |
 
 ### Modification manuelle
 
 ```bash
-# Changer le modèle
+# Changer le modèle de transcription
 python config_manager.py set WHISPER model medium
+
+# Activer/désactiver l'enrichissement
+python config_manager.py set ENRICHMENT enabled true
 
 # Changer le nombre de workers
 python config_manager.py set PERFORMANCE max_workers 8
-
-# Désactiver le VAD
-python config_manager.py set PERFORMANCE vad_enabled false
 
 # Valider la config
 python config_manager.py validate
@@ -105,11 +119,19 @@ curl -X POST http://localhost:8000/config/reload
 
 ---
 
-## 📊 Résolution de problèmes courants
+## 📊 Résolution de Problèmes Courants
 
 ### ❌ "Whisper model not loaded"
-**Cause**: Le modèle charge au démarrage (peut prendre 30s)  
+**Cause**: Le modèle charge au démarrage (30s)  
 **Solution**: Attendre que les logs affichent "✅ Whisper model loaded"
+
+### ❌ "Enrichment model not found"
+**Cause**: Modèle LLM non téléchargé  
+**Solution**: 
+```bash
+make download-model
+# Ou vérifier le chemin dans config.ini
+```
 
 ### 🐌 Transcription très lente
 **Solutions**:
@@ -122,6 +144,19 @@ python config_manager.py set PERFORMANCE vad_enabled true
 
 # Option 3: Plus de workers
 python config_manager.py set PERFORMANCE max_workers 8
+```
+
+### 🐌 Enrichissement très lent
+**Solutions**:
+```bash
+# Option 1: Plus de threads
+python config_manager.py set ENRICHMENT n_threads 8
+
+# Option 2: Réduire contexte
+python config_manager.py set ENRICHMENT n_ctx 2048
+
+# Option 3: Désactiver topics
+python config_manager.py set ENRICHMENT generate_topics false
 ```
 
 ### ❌ "ffmpeg not found"
@@ -156,6 +191,29 @@ python config_manager.py set PERFORMANCE beam_size 7
 # Vérifier la qualité audio d'entrée (doit être claire)
 ```
 
+### 🎨 Enrichissement de mauvaise qualité
+```bash
+# Augmenter le modèle
+python config_manager.py set ENRICHMENT model_path models/mistral-7b-instruct-v0.3.Q5_K_M.gguf
+
+# Plus de contexte
+python config_manager.py set ENRICHMENT n_ctx 8192
+
+# Température plus déterministe
+python config_manager.py set ENRICHMENT temperature 0.2
+```
+
+### ❌ "Out of memory"
+```bash
+# Transcription
+python config_manager.py set WHISPER model tiny
+python config_manager.py set PERFORMANCE max_workers 2
+
+# Enrichissement
+python config_manager.py set ENRICHMENT n_ctx 2048
+python config_manager.py set ENRICHMENT batch_size 1
+```
+
 ---
 
 ## 🐳 Docker (Alternative)
@@ -180,47 +238,70 @@ make docker-stop
 
 - **Dashboard**: http://localhost:8000/dashboard
 - **API Docs**: http://localhost:8000/docs
-- **Guide complet**: Voir `README.md`
-- **Déploiement**: Voir `DEPLOYMENT.md`
+- **Health**: http://localhost:8000/health
+- **Guide complet**: Voir `docs/README.md`
+- **Déploiement**: Voir `docs/DEPLOYMENT.md`
+- **Enrichissement**: Voir `enrichment/README.md`
 
 ---
 
-## 🎓 Exemples d'utilisation
+## 🎓 Exemples d'Utilisation
 
-### Python
+### Python - Transcription + Enrichissement
 ```python
 import requests
+import time
 
-# Upload
+# 1. Upload audio
 files = {'file': open('audio.wav', 'rb')}
-response = requests.post('http://localhost:8000/transcribe', files=files)
+response = requests.post('http://localhost:8000/api/transcribe', files=files)
 transcription_id = response.json()['transcription_id']
 
-# Récupérer le résultat
-import time
+# 2. Attendre la transcription
 while True:
-    result = requests.get(f'http://localhost:8000/transcribe/{transcription_id}')
+    result = requests.get(f'http://localhost:8000/api/transcribe/{transcription_id}')
     data = result.json()
+    
     if data['status'] == 'done':
-        print(data['text'])
+        # Transcription
+        print("Texte:", data['text'])
+        
+        # Enrichissement (si disponible)
+        if 'enrichment' in data:
+            enrich = data['enrichment']
+            print("\nTitre:", enrich['title'])
+            print("Résumé:", enrich['summary'])
+            print("Sentiment:", enrich['sentiment'])
+            print("Points clés:", enrich['bullets'])
         break
+    
     time.sleep(2)
 ```
 
-### cURL
+### cURL - Workflow Complet
 ```bash
-# Upload
-ID=$(curl -s -X POST "http://localhost:8000/transcribe" \
+# 1. Upload
+ID=$(curl -s -X POST "http://localhost:8000/api/transcribe" \
   -F "file=@audio.wav" | jq -r '.transcription_id')
 
-# Attendre et récupérer
+echo "Transcription ID: $ID"
+
+# 2. Attendre et récupérer
 while true; do
-  STATUS=$(curl -s "http://localhost:8000/transcribe/$ID" | jq -r '.status')
+  STATUS=$(curl -s "http://localhost:8000/api/transcribe/$ID" | jq -r '.status')
+  echo "Status: $STATUS"
+  
   if [ "$STATUS" = "done" ]; then
-    curl -s "http://localhost:8000/transcribe/$ID" | jq '.text'
+    # Afficher résultats
+    curl -s "http://localhost:8000/api/transcribe/$ID" | jq '{
+      text: .text,
+      duration: .duration,
+      enrichment: .enrichment
+    }'
     break
   fi
-  sleep 2
+  
+  sleep 3
 done
 ```
 
@@ -230,48 +311,71 @@ const FormData = require('form-data');
 const fs = require('fs');
 const axios = require('axios');
 
-async function transcribe(filePath) {
-  // Upload
+async function transcribeAndEnrich(filePath) {
+  // 1. Upload
   const form = new FormData();
   form.append('file', fs.createReadStream(filePath));
   
-  const uploadRes = await axios.post('http://localhost:8000/transcribe', form, {
+  const uploadRes = await axios.post('http://localhost:8000/api/transcribe', form, {
     headers: form.getHeaders()
   });
   
   const transcriptionId = uploadRes.data.transcription_id;
+  console.log('Transcription ID:', transcriptionId);
   
-  // Poll résultat
+  // 2. Poll résultat
   while (true) {
-    const result = await axios.get(`http://localhost:8000/transcribe/${transcriptionId}`);
-    if (result.data.status === 'done') {
-      return result.data.text;
+    const result = await axios.get(`http://localhost:8000/api/transcribe/${transcriptionId}`);
+    const data = result.data;
+    
+    console.log('Status:', data.status);
+    
+    if (data.status === 'done') {
+      console.log('\n=== TRANSCRIPTION ===');
+      console.log(data.text);
+      
+      if (data.enrichment) {
+        console.log('\n=== ENRICHISSEMENT ===');
+        console.log('Titre:', data.enrichment.title);
+        console.log('Résumé:', data.enrichment.summary);
+        console.log('Sentiment:', data.enrichment.sentiment);
+        console.log('Points clés:', data.enrichment.bullets);
+      }
+      
+      return data;
     }
+    
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
 }
 
-transcribe('audio.wav').then(text => console.log(text));
+transcribeAndEnrich('audio.wav').catch(console.error);
 ```
 
 ---
 
 ## 🎯 Métriques de Performance
 
-### Attendues (config balanced, small model)
+### Attendues (config balanced)
 
-| Audio | Durée | Traitement | Ratio |
-|-------|-------|------------|-------|
-| Court | 30s | 3-5s | 6-10x |
-| Moyen | 5min | 30-60s | 5-10x |
-| Long | 30min | 3-6min | 5-10x |
+**Transcription (small model)**
+
+| Audio | Durée | Traitement | Ratio | Enrichissement | Total |
+|-------|-------|------------|-------|----------------|-------|
+| Court | 30s | 3-5s | 6-10x | 30-40s | ~45s |
+| Moyen | 5min | 30-60s | 5-10x | 30-40s | ~90s |
+| Long | 30min | 3-6min | 5-10x | 30-40s | 4-7min |
+
+**Temps total** = Transcription + Enrichissement (en parallèle si batch)
 
 ### Facteurs d'amélioration
 
-- ✅ **VAD activé**: +40% vitesse
-- ✅ **Audio propre**: +20% précision
+- ✅ **VAD activé**: +40% vitesse transcription
+- ✅ **Audio propre**: +20% précision transcription
 - ✅ **Modèle adapté**: +50% vitesse (tiny vs medium)
 - ✅ **Multi-workers**: +30% sur audios longs
+- ✅ **Threads CPU++**: +30% vitesse enrichissement
+- ✅ **Batch enrichissement**: Traiter plusieurs simultanément
 
 ---
 
@@ -279,54 +383,105 @@ transcribe('audio.wav').then(text => console.log(text));
 
 Avant de déployer en production :
 
+### Transcription
 - [ ] Configuration validée: `make config-validate`
 - [ ] Tests passés: `make test`
 - [ ] Preset appliqué: `make config-balanced`
 - [ ] FFmpeg installé: `ffmpeg -version`
 - [ ] Espace disque suffisant: >20GB
 - [ ] RAM suffisante: >8GB
+
+### Enrichissement
+- [ ] Modèle LLM téléchargé: `make list-models`
+- [ ] Tables créées: `make db-migrate`
+- [ ] Config enrichissement: Section `[ENRICHMENT]` dans config.ini
+- [ ] Worker testé: `python3 test_enrichment_module.py`
+- [ ] RAM suffisante: >10GB (avec modèle)
+
+### Sécurité & Infrastructure
 - [ ] Rate limiting configuré
 - [ ] Backup de la DB planifié
-- [ ] Logs configurés
+- [ ] Logs configurés et rotatifs
 - [ ] HTTPS configuré (Nginx)
 - [ ] Monitoring en place
+- [ ] Firewall configuré
 
 ---
 
 ## 🔥 Optimisations Avancées
 
-### Pour serveurs puissants (8+ cores)
-```bash
-python config_manager.py set PERFORMANCE max_workers 8
-python config_manager.py set WHISPER cpu_threads 14
+### Pour serveurs puissants (8+ cores, 16GB+ RAM)
+```ini
+[PERFORMANCE]
+max_workers = 8
+vad_enabled = true
+
+[WHISPER]
+model = small
+cpu_threads = 14
+
+[ENRICHMENT]
+n_threads = 8
+batch_size = 5
+n_ctx = 4096
 ```
 
 ### Pour GPU NVIDIA
-```bash
-python config_manager.py set WHISPER device cuda
-python config_manager.py set WHISPER compute_type float16
-python config_manager.py set WHISPER model medium  # Peut gérer plus gros
+```ini
+[WHISPER]
+device = cuda
+compute_type = float16
+model = medium  # Peut gérer plus gros
+
+[ENRICHMENT]
+# LLM reste sur CPU
+n_threads = 6
 ```
 
 ### Pour RAM limitée (<8GB)
-```bash
-python config_manager.py set WHISPER model tiny
-python config_manager.py set PERFORMANCE max_workers 2
-python config_manager.py set LIMITS max_file_size_mb 50
+```ini
+[WHISPER]
+model = tiny
+
+[PERFORMANCE]
+max_workers = 2
+
+[LIMITS]
+max_file_size_mb = 50
+
+[ENRICHMENT]
+enabled = false  # Désactiver enrichissement
+# OU
+n_ctx = 2048
+batch_size = 1
 ```
 
 ### Pour call centers avec beaucoup de silence
-```bash
-python config_manager.py set PERFORMANCE vad_enabled true
-python config_manager.py set VAD silence_thresh -35
-python config_manager.py set VAD min_silence_len 700
+```ini
+[PERFORMANCE]
+vad_enabled = true
+
+[VAD]
+silence_thresh = -35
+min_silence_len = 700
+
+[ENRICHMENT]
+generate_sentiment = true  # Important pour call centers
 ```
 
 ### Pour audio de qualité studio
-```bash
-python config_manager.py set WHISPER model medium
-python config_manager.py set PERFORMANCE beam_size 10
-python config_manager.py set VAD silence_thresh -45
+```ini
+[WHISPER]
+model = medium
+beam_size = 10
+
+[VAD]
+silence_thresh = -45
+
+[ENRICHMENT]
+model_path = models/mistral-7b-instruct-v0.3.Q5_K_M.gguf
+n_ctx = 8192
+temperature = 0.4
 ```
 
 ---
@@ -343,6 +498,8 @@ curl http://localhost:8000/config
 
 # Logs
 make logs
+tail -f logs/vocalyx.log
+tail -f logs/enrichment.log
 ```
 
 ### Obtenir de l'aide
@@ -367,6 +524,7 @@ open http://localhost:8000/docs
    make logs
    # ou
    tail -f logs/vocalyx.log
+   tail -f logs/enrichment.log
    ```
 
 2. **Vérifier la config**
@@ -374,21 +532,27 @@ open http://localhost:8000/docs
    make config-validate
    ```
 
-3. **Redémarrer proprement**
+3. **Tester les modules**
    ```bash
-   # Arrêter (Ctrl+C)
-   # Nettoyer
-   make clean
-   # Relancer
-   make run
+   make test-transcribe
+   make test-enrich
    ```
 
-4. **Reset complet** (en dernier recours)
+4. **Redémarrer proprement**
    ```bash
-   make reset
-   make install
+   make stop
+   make clean
+   make run-all
+   ```
+
+5. **Reset complet** (dernier recours)
+   ```bash
+   make clean-all
+   make install-all
+   make download-model
    make config-balanced
-   make run
+   make db-migrate
+   make run-all
    ```
 
 ---
@@ -402,11 +566,10 @@ open http://localhost:8000/docs
 sudo cp -r . /opt/vocalyx
 cd /opt/vocalyx
 
-# 2. Créer le service
-sudo nano /etc/systemd/system/vocalyx.service
+# 2. Service API
+sudo nano /etc/systemd/system/vocalyx-api.service
 ```
 
-Contenu du service:
 ```ini
 [Unit]
 Description=Vocalyx API
@@ -425,28 +588,36 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-# 3. Activer et démarrer
-sudo systemctl daemon-reload
-sudo systemctl enable vocalyx
-sudo systemctl start vocalyx
-sudo systemctl status vocalyx
+# 3. Service Worker Enrichissement
+sudo nano /etc/systemd/system/vocalyx-enrichment.service
 ```
 
-### Option 2: Docker
+```ini
+[Unit]
+Description=Vocalyx Enrichment Worker
+After=network.target vocalyx-api.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/vocalyx
+Environment="PATH=/opt/vocalyx/venv/bin"
+ExecStart=/opt/vocalyx/venv/bin/python3 run_enrichment.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-# 1. Construire
-make docker-build
-
-# 2. Lancer
-make docker-run
-
-# 3. Vérifier
-docker ps
-make docker-logs
+# 4. Activer et démarrer
+sudo systemctl daemon-reload
+sudo systemctl enable vocalyx-api vocalyx-enrichment
+sudo systemctl start vocalyx-api vocalyx-enrichment
+sudo systemctl status vocalyx-api vocalyx-enrichment
 ```
 
-### Option 3: Nginx Reverse Proxy
+### Option 2: Nginx Reverse Proxy
 
 ```nginx
 # /etc/nginx/sites-available/vocalyx
@@ -477,176 +648,28 @@ sudo certbot --nginx -d vocalyx.votredomaine.com
 
 ---
 
-## 📊 Monitoring Production
-
-### Scripts de monitoring
-
-**check_health.sh**
-```bash
-#!/bin/bash
-HEALTH=$(curl -s http://localhost:8000/health | jq -r '.status')
-if [ "$HEALTH" != "healthy" ]; then
-    echo "❌ Vocalyx is down!" | mail -s "Alert: Vocalyx" admin@example.com
-    systemctl restart vocalyx
-fi
-```
-
-**Ajouter au crontab**:
-```bash
-# Vérifier toutes les 5 minutes
-*/5 * * * * /opt/vocalyx/check_health.sh
-
-# Nettoyer la DB tous les jours à 3h
-0 3 * * * cd /opt/vocalyx && /opt/vocalyx/venv/bin/python cleanup_db.py --days 30 --incomplete --vacuum -y
-```
-
-### Logs centralisés
-
-```bash
-# Rotation des logs
-sudo nano /etc/logrotate.d/vocalyx
-```
-
-```
-/opt/vocalyx/logs/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-}
-```
-
-### Métriques Prometheus (optionnel)
-
-Ajouter à `app.py`:
-```python
-from prometheus_fastapi_instrumentator import Instrumentator
-
-@app.on_event("startup")
-async def startup():
-    Instrumentator().instrument(app).expose(app)
-```
-
----
-
-## 🎓 Cas d'Usage Courants
-
-### 1. Call Center - Appels courts (<2min)
-```bash
-python config_manager.py preset speed
-python config_manager.py set PERFORMANCE max_workers 8
-python config_manager.py set VAD silence_thresh -35
-```
-
-### 2. Interviews / Podcasts (5-60min)
-```bash
-python config_manager.py preset balanced
-python config_manager.py set PERFORMANCE segment_length_ms 90000
-```
-
-### 3. Conférences / Meetings (>1h)
-```bash
-python config_manager.py preset accuracy
-python config_manager.py set PERFORMANCE max_workers 2
-python config_manager.py set LIMITS max_file_size_mb 500
-```
-
-### 4. Multi-langues (détection auto)
-```bash
-python config_manager.py set WHISPER language ""  # Vide = auto
-python config_manager.py set PERFORMANCE beam_size 7
-```
-
-### 5. Traduction (FR → EN)
-```python
-# Via API avec translate=true
-curl -X POST "http://localhost:8000/transcribe" \
-  -F "file=@audio_fr.wav" \
-  -F "translate=true"
-```
-
----
-
-## 📈 Benchmarks Réels
-
-### Configuration de test
-- **CPU**: Intel i7-10700K (8 cores)
-- **RAM**: 16GB
-- **Modèle**: small
-- **VAD**: Activé
-
-### Résultats
-
-| Fichier | Durée | Traitement | Vitesse | Qualité |
-|---------|-------|------------|---------|---------|
-| Call court | 45s | 6s | 7.5x | ⭐⭐⭐⭐ |
-| Interview | 12min | 96s | 7.5x | ⭐⭐⭐⭐ |
-| Conférence | 45min | 360s | 7.5x | ⭐⭐⭐⭐ |
-| Podcast | 2h | 960s | 7.5x | ⭐⭐⭐⭐ |
-
-**Avec modèle medium**: Vitesse ÷2, Qualité +15%  
-**Avec modèle tiny**: Vitesse ×4, Qualité -20%
-
----
-
-## 🔐 Sécurité Production
-
-### Recommandations
-
-1. **Isolation réseau**
-   ```bash
-   # Firewall: autoriser seulement le port 80/443
-   sudo ufw allow 80/tcp
-   sudo ufw allow 443/tcp
-   sudo ufw enable
-   ```
-
-2. **Authentification API** (à implémenter)
-   ```python
-   from fastapi import Header, HTTPException
-   
-   async def verify_token(x_api_key: str = Header(...)):
-       if x_api_key != "votre_secret_token":
-           raise HTTPException(status_code=401)
-   ```
-
-3. **Rate limiting strict**
-   ```ini
-   [LIMITS]
-   rate_limit_per_minute = 5  # Plus strict
-   max_file_size_mb = 50      # Limiter la taille
-   ```
-
-4. **Backup automatique**
-   ```bash
-   # Backup quotidien
-   0 2 * * * cp /opt/vocalyx/transcriptions.db /backup/vocalyx_$(date +\%Y\%m\%d).db
-   ```
-
----
-
 ## 🎉 Vous êtes prêt !
 
-Votre installation Vocalyx est maintenant complète. 
+Votre installation Vocalyx complète (Transcription + Enrichissement) est maintenant opérationnelle.
 
 ### Prochaines étapes
 
-1. ✅ Lancer: `make run`
+1. ✅ Lancer: `make run-all`
 2. ✅ Tester: `make test`
 3. ✅ Dashboard: http://localhost:8000/dashboard
 4. ✅ Docs: http://localhost:8000/docs
 
 ### Ressources
 
-- 📖 README complet: `README.md`
-- 🚀 Déploiement détaillé: `DEPLOYMENT.md`
+- 📖 README complet: `docs/README.md`
+- 🚀 Déploiement détaillé: `docs/DEPLOYMENT.md`
+- 🎨 Module enrichissement: `enrichment/README.md`
+- 📝 Guide logs: `docs/LOGS.md`
 - 💡 Commandes: `make help`
 - 📧 Support: guilhem.l.richard@gmail.com
 
 ---
 
-**Vocalyx v1.3.0** - La voix de vos clients, intelligemment exploitée 🎙️
+**Vocalyx v1.4.0** - Transcription + Enrichissement Intelligent 🎙️✨
 
-*Bon développement !* 🚀
+*La voix de vos clients, intelligemment exploitée !* 🚀

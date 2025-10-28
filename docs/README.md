@@ -1,409 +1,452 @@
-# 🎙️ Vocalyx - API de Transcription Speech-to-Text
+# 🎙️ Vocalyx - Plateforme Complète de Transcription et d'Analyse Intelligente
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green.svg)](https://fastapi.tiangolo.com/)
 [![Whisper](https://img.shields.io/badge/Whisper-faster--whisper-orange.svg)](https://github.com/guillaumekln/faster-whisper)
+[![LLM](https://img.shields.io/badge/LLM-Mistral_7B-purple.svg)](https://mistral.ai/)
 
-Vocalyx transforme automatiquement les enregistrements de call centers en transcriptions enrichies et exploitables grâce à l'intelligence artificielle.
+Vocalyx transforme automatiquement les enregistrements audio (call centers, interviews, réunions) en **transcriptions enrichies et exploitables** grâce à l'intelligence artificielle.
 
 ## ✨ Fonctionnalités
 
-- 🚀 **Transcription asynchrone** haute performance
+### 🎯 Module de Transcription
+- 🚀 **Transcription asynchrone** haute performance (jusqu'à 50x temps réel)
 - 🎯 **VAD (Voice Activity Detection)** pour ignorer les silences
-- 📊 **Dashboard web** interactif avec suivi en temps réel
+- 🔄 **Traitement parallèle** optimisé pour fichiers longs
+- 🌍 **Multi-langues** avec détection automatique (français optimisé)
+- 📊 **Métriques de performance** détaillées en temps réel
+
+### 🎨 Module d'Enrichissement (LLM)
+- 📌 **Génération de titre** automatique (10 mots max)
+- 📝 **Résumé intelligent** en 2-3 phrases
+- 🔹 **Points clés** extraits (3-5 éléments)
+- 😊 **Analyse de sentiment** (positif/négatif/neutre/mixte)
+- 🏷️ **Topics** et thèmes principaux (optionnel)
+
+### 🖥️ Interface & API
+- 📊 **Dashboard web** interactif avec suivi temps réel
+- 📝 **API REST** complète avec documentation Swagger
 - ⚙️ **Configuration flexible** via fichier `.ini`
-- 🔄 **Traitement parallèle** pour fichiers longs
-- 📝 **API REST** complète avec Swagger
-- 🛡️ **Rate limiting** et validation des fichiers
-- 🌍 **Multi-langues** (français optimisé)
-- 📈 **Métriques de performance** détaillées
+- 🛡️ **Rate limiting** et validation sécurisée
+- 🔐 **100% local** : aucune donnée envoyée à l'extérieur
 
-## 🚀 Démarrage rapide
+## 🏗️ Architecture
 
-### Installation
+```
+┌─────────────────┐
+│   Audio Input   │  (WAV, MP3, M4A, FLAC, OGG, WEBM)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Transcription  │  (faster-whisper + VAD)
+│   Module        │  → Texte + Segments + Timestamps
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Enrichissement │  (Mistral 7B LLM local)
+│   Module        │  → Titre + Résumé + Insights
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  API REST +     │
+│  Dashboard      │  → Résultats exploitables
+└─────────────────┘
+```
+
+## 🚀 Installation Rapide
+
+### Prérequis
+- Python 3.8+
+- FFmpeg
+- 8GB RAM minimum (16GB recommandé)
+- CPU multi-cœurs (4+ cœurs)
+
+### Installation en 3 commandes
 
 ```bash
-# Cloner le projet
-git clone <votre-repo>
-cd vocalyx
+# 1. Installation de base (transcription)
+make install
 
-# Créer l'environnement virtuel
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate     # Windows
+# 2. Installation du module d'enrichissement
+make install-enrichment
 
-# Installer les dépendances
-pip install -r requirements.txt
+# 3. Téléchargement du modèle LLM (4GB)
+make download-model
+```
 
-# Installer ffmpeg (requis)
-# Ubuntu/Debian:
-sudo apt install ffmpeg libsndfile1
+### Configuration
 
-# macOS:
-brew install ffmpeg libsndfile
+```bash
+# Appliquer la configuration recommandée
+make config-balanced
 
-# Windows: télécharger depuis https://ffmpeg.org/
+# Ajouter la section enrichissement
+bash scripts/add_enrichment_config.sh
+
+# Créer les tables de la base de données
+make db-migrate
 ```
 
 ### Lancement
 
 ```bash
-# Lancer l'application
-python app.py
+# Lancer l'API + Worker d'enrichissement
+make run-all
 
-# L'API est disponible sur http://localhost:8000
-# Dashboard: http://localhost:8000/dashboard
-# Documentation: http://localhost:8000/docs
+# Ou séparément :
+make run              # API de transcription uniquement
+make run-enrichment   # Worker d'enrichissement uniquement
 ```
 
-### Premier test
+**URLs disponibles :**
+- Dashboard : http://localhost:8000/dashboard
+- API Docs : http://localhost:8000/docs
+- Health : http://localhost:8000/health
+
+## 📊 Exemple Complet
+
+### 1. Upload d'un fichier audio
 
 ```bash
-# Méthode 1: Script de test automatique
-chmod +x test_vocalyx.sh
-./test_vocalyx.sh mon_fichier.wav
-
-# Méthode 2: cURL manuel
-curl -X POST "http://localhost:8000/transcribe" \
-  -F "file=@mon_audio.wav" \
-  -F "use_vad=true"
-
-# Récupérer le résultat
-curl "http://localhost:8000/transcribe/{transcription_id}"
-```
-
-## 📋 Configuration
-
-Vocalyx utilise un fichier `config.ini` pour toute la configuration. Le fichier est créé automatiquement avec des valeurs par défaut au premier lancement.
-
-### Presets disponibles
-
-```bash
-# Installation de l'outil de configuration
-python config_manager.py
-
-# Afficher la configuration actuelle
-python config_manager.py show
-
-# Appliquer un preset
-python config_manager.py preset balanced  # Recommandé
-python config_manager.py preset speed     # Vitesse max
-python config_manager.py preset accuracy  # Précision max
-
-# Modifier une valeur spécifique
-python config_manager.py set WHISPER model medium
-
-# Valider la configuration
-python config_manager.py validate
-```
-
-### Structure du fichier config.ini
-
-```ini
-[WHISPER]
-model = small              # tiny, base, small, medium, large-v3
-device = cpu               # cpu, cuda (GPU)
-compute_type = int8        # int8, float16, float32
-cpu_threads = 10           # Nombre de threads CPU
-language = fr              # Langue forcée (fr, en, es, etc.)
-
-[PERFORMANCE]
-max_workers = 4            # Workers parallèles
-segment_length_ms = 60000  # Taille des segments (ms)
-vad_enabled = true         # Activer VAD
-beam_size = 5              # Qualité du décodage (1-10)
-temperature = 0.0          # Déterminisme (0.0-1.0)
-
-[LIMITS]
-max_file_size_mb = 100              # Taille max des fichiers
-rate_limit_per_minute = 10          # Limite de requêtes
-allowed_extensions = wav,mp3,m4a,flac,ogg,webm
-
-[PATHS]
-upload_dir = ./tmp_uploads
-database_path = sqlite:///./transcriptions.db
-templates_dir = templates
-
-[VAD]
-min_silence_len = 500        # Silence minimum (ms)
-silence_thresh = -40         # Seuil de silence (dB)
-vad_threshold = 0.5          # Sensibilité VAD (0.0-1.0)
-```
-
-## 📊 Comparatif des modèles
-
-| Modèle | Taille | RAM | Vitesse | Qualité | Usage recommandé |
-|--------|--------|-----|---------|---------|------------------|
-| **tiny** | ~75MB | 1GB | 30-50x ⚡⚡⚡ | ⭐⭐ | Tests, prototypes |
-| **base** | ~145MB | 1GB | 15-30x ⚡⚡ | ⭐⭐⭐ | Appels courts |
-| **small** | ~460MB | 2GB | 5-10x ⚡ | ⭐⭐⭐⭐ | **Production standard** ✅ |
-| **medium** | ~1.5GB | 5GB | 2-4x | ⭐⭐⭐⭐⭐ | Haute qualité |
-| **large-v3** | ~3GB | 10GB | 1-2x | ⭐⭐⭐⭐⭐ | Qualité maximale |
-
-*Vitesse = X fois le temps réel (ex: 10x = 1min d'audio en 6s)*
-
-## 🔧 API Endpoints
-
-### POST /transcribe
-Créer une transcription
-
-```bash
-curl -X POST "http://localhost:8000/transcribe" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@audio.wav" \
-  -F "translate=false" \
+curl -X POST "http://localhost:8000/api/transcribe" \
+  -F "file=@appel_client.wav" \
   -F "use_vad=true"
 ```
 
-**Réponse:**
+**Réponse :**
 ```json
 {
-  "transcription_id": "uuid-here",
+  "transcription_id": "abc123-def456",
   "status": "pending"
 }
 ```
 
-### GET /transcribe/{id}
-Récupérer une transcription
+### 2. Récupération du résultat
 
 ```bash
-curl "http://localhost:8000/transcribe/{transcription_id}"
+curl "http://localhost:8000/api/transcribe/abc123-def456"
 ```
 
-**Réponse:**
+**Réponse enrichie :**
 ```json
 {
-  "id": "uuid",
+  "id": "abc123-def456",
   "status": "done",
   "language": "fr",
   "duration": 120.5,
-  "processing_time": 12.3,
-  "text": "Transcription complète...",
+  "processing_time": 15.3,
+  "text": "Bonjour, je vous appelle concernant...",
   "segments": [
     {"start": 0.0, "end": 3.5, "text": "Bonjour"},
-    {"start": 3.5, "end": 5.2, "text": "comment allez-vous ?"}
+    {"start": 3.5, "end": 8.2, "text": "je vous appelle concernant..."}
   ],
   "segments_count": 42,
-  "vad_enabled": true
+  "vad_enabled": true,
+  "enrichment": {
+    "title": "Réclamation client - Produit défectueux",
+    "summary": "Le client appelle pour signaler un problème avec sa commande. Il n'a pas reçu le produit commandé il y a une semaine et demande un remboursement urgent.",
+    "bullets": [
+      "Commande non reçue après une semaine",
+      "Demande de remboursement",
+      "Urgence exprimée par le client"
+    ],
+    "sentiment": "negatif",
+    "sentiment_confidence": 0.85
+  }
 }
 ```
 
-### GET /transcribe/recent
-Lister les transcriptions récentes
+## ⚡ Performance
 
-```bash
-curl "http://localhost:8000/transcribe/recent?limit=10"
-```
+### Transcription (modèle `small`)
 
-### DELETE /transcribe/{id}
-Supprimer une transcription
+| Durée audio | Temps traitement | Vitesse | VAD |
+|-------------|------------------|---------|-----|
+| 30 secondes | 3-5s | 6-10x ⚡⚡⚡ | ✅ |
+| 5 minutes | 30-60s | 5-10x ⚡⚡ | ✅ |
+| 30 minutes | 3-6 min | 5-10x ⚡⚡ | ✅ |
+| 2 heures | 12-20 min | 6-10x ⚡⚡ | ✅ |
 
-```bash
-curl -X DELETE "http://localhost:8000/transcribe/{transcription_id}"
-```
+### Enrichissement (Mistral 7B Q4)
 
-### GET /config
-Voir la configuration actuelle
+| CPU | Temps/transcription | Tokens/sec |
+|-----|---------------------|------------|
+| i7 8 cores | 30-40s | ~15 tok/s |
+| i9 12 cores | 20-30s | ~20 tok/s |
+| Ryzen 9 16 cores | 15-25s | ~25 tok/s |
 
-```bash
-curl "http://localhost:8000/config"
-```
+**Temps total** : Transcription (10s) + Enrichissement (30s) = **~40s pour 5 min d'audio**
 
-### POST /config/reload
-Recharger la configuration sans redémarrage
+## 📋 Comparatif des Modèles
 
-```bash
-curl -X POST "http://localhost:8000/config/reload"
-```
+### Transcription (Whisper)
 
-### GET /health
-Vérifier l'état de l'API
+| Modèle | RAM | Vitesse | Qualité | Usage |
+|--------|-----|---------|---------|-------|
+| **tiny** | 1GB | 30-50x ⚡⚡⚡ | ⭐⭐ | Tests, prototypes |
+| **base** | 1GB | 15-30x ⚡⚡ | ⭐⭐⭐ | Appels courts |
+| **small** | 2GB | 5-10x ⚡ | ⭐⭐⭐⭐ | **Production** ✅ |
+| **medium** | 5GB | 2-4x | ⭐⭐⭐⭐⭐ | Haute qualité |
+| **large-v3** | 10GB | 1-2x | ⭐⭐⭐⭐⭐ | Qualité maximale |
 
-```bash
-curl "http://localhost:8000/health"
-```
+### Enrichissement (LLM)
 
-## 🎯 Optimisation des performances
+| Modèle | Taille | RAM | Vitesse | Qualité |
+|--------|--------|-----|---------|---------|
+| **Mistral 7B Q4** | 4GB | 6GB | 15 tok/s | ⭐⭐⭐⭐ ✅ |
+| **Mistral 7B Q5** | 5GB | 8GB | 10 tok/s | ⭐⭐⭐⭐⭐ |
+| **Llama 2 7B Q4** | 4GB | 6GB | 12 tok/s | ⭐⭐⭐⭐ |
 
-### Règle générale
-```
-Vitesse = (Puissance CPU × Taille modèle⁻¹ × VAD) / Qualité audio
-```
+## 🎯 Cas d'Usage
 
-### Conseils d'optimisation
-
-#### Pour plus de VITESSE 🚀
-```ini
-[WHISPER]
-model = tiny
-[PERFORMANCE]
-max_workers = 8
-beam_size = 3
-vad_enabled = true
-```
-
-#### Pour plus de PRÉCISION 🎯
-```ini
-[WHISPER]
-model = medium
-[PERFORMANCE]
-max_workers = 2
-beam_size = 10
-segment_length_ms = 90000
-```
-
-#### Pour PRODUCTION équilibrée ⚖️
+### 1. Call Center - Support Client
 ```ini
 [WHISPER]
 model = small
 [PERFORMANCE]
-max_workers = 4
-beam_size = 5
 vad_enabled = true
+max_workers = 4
+[ENRICHMENT]
+enabled = true
+generate_sentiment = true
 ```
 
-### VAD (Voice Activity Detection)
+**Résultat** : Transcription + analyse de sentiment pour chaque appel
 
-Le VAD améliore considérablement les performances :
+### 2. Interviews / Podcasts
+```ini
+[WHISPER]
+model = medium
+[PERFORMANCE]
+segment_length_ms = 90000
+[ENRICHMENT]
+generate_title = true
+generate_summary = true
+generate_bullets = true
+```
 
-- ✅ **+40% de vitesse** sur des audios avec silences
-- ✅ **Segments plus pertinents** (ignore les blancs)
-- ✅ **Meilleure précision** (moins de bruit transcrit)
+**Résultat** : Transcription précise + résumé structuré
 
-**Quand désactiver le VAD:**
-- Musique ou chants
-- Audio continu sans pauses
-- ASMR ou sons d'ambiance
+### 3. Réunions d'Entreprise
+```ini
+[WHISPER]
+model = small
+language = fr
+[ENRICHMENT]
+generate_bullets = true
+generate_topics = true
+```
 
-### Tuning du VAD
+**Résultat** : Compte-rendu automatique avec points clés
+
+## ⚙️ Configuration
+
+### Fichier `config.ini`
 
 ```ini
-[VAD]
-# Audio avec beaucoup de bruit de fond
-silence_thresh = -35  # Moins sensible
+# === TRANSCRIPTION ===
+[WHISPER]
+model = small
+device = cpu
+language = fr
 
-# Audio très propre / studio
-silence_thresh = -45  # Plus sensible
+[PERFORMANCE]
+max_workers = 4
+vad_enabled = true
+beam_size = 5
 
-# Parole rapide / coupures de mots
-min_silence_len = 300  # Pauses plus courtes
+# === ENRICHISSEMENT ===
+[ENRICHMENT]
+enabled = true
+model_path = models/mistral-7b-instruct-v0.3.Q4_K_M.gguf
+n_threads = 6
+temperature = 0.3
 
-# Parole lente / longues pauses
-min_silence_len = 700  # Pauses plus longues
+generate_title = true
+generate_summary = true
+generate_bullets = true
+generate_sentiment = true
 ```
 
-## 📈 Monitoring et métriques
+### Presets Disponibles
 
-### Dashboard web
-Accédez à `http://localhost:8000/dashboard` pour :
-- 📊 Vue temps réel des transcriptions
-- 🔍 Filtres par statut
-- 📝 Détails des segments
-- 📥 Upload direct depuis l'interface
-- 🗑️ Suppression de transcriptions
-
-### Métriques clés
-Chaque transcription fournit :
-- **Duration**: Durée réelle de l'audio
-- **Processing time**: Temps de traitement
-- **Speed ratio**: X fois le temps réel
-- **Segments count**: Nombre de segments détectés
-- **VAD status**: VAD activé ou non
-
-### Logs
 ```bash
-# Logs en temps réel
-tail -f logs/vocalyx.log
+# Vitesse maximale
+make config-speed
 
-# Avec journalctl (si systemd)
-sudo journalctl -u vocalyx -f
+# Équilibre production (recommandé)
+make config-balanced
+
+# Qualité maximale
+make config-accuracy
+```
+
+## 🗄️ Base de Données
+
+### Tables principales
+
+**`transcriptions`**
+- Transcriptions audio (texte, segments, métriques)
+
+**`enrichments`**
+- Enrichissements LLM (titre, résumé, sentiment)
+
+### Gestion
+
+```bash
+# Statistiques
+make db-stats
+
+# Nettoyage (> 30 jours)
+make clean-db
+
+# Backup
+make backup-db
+```
+
+## 🧪 Tests
+
+```bash
+# Test complet
+make test
+
+# Test transcription
+make test-transcribe FILE=audio.wav
+
+# Test enrichissement
+python3 test_enrichment_module.py
+
+# Vérifier l'installation
+make check
 ```
 
 ## 🐳 Docker
 
-```dockerfile
-# Dockerfile inclus dans le projet
-docker build -t vocalyx:latest .
-
-# Lancer avec volume pour config
-docker run -d \
-  -p 8000:8000 \
-  -v $(pwd)/config.ini:/app/config.ini \
-  -v $(pwd)/tmp_uploads:/app/tmp_uploads \
-  --name vocalyx \
-  vocalyx:latest
-```
-
-## 🔒 Sécurité
-
-- ✅ Rate limiting configuré
-- ✅ Validation des extensions de fichiers
-- ✅ Limite de taille des uploads
-- ✅ Sanitization des noms de fichiers
-- ✅ Cleanup automatique des fichiers temporaires
-
-**Pour production:**
-- Utilisez HTTPS (Nginx + Let's Encrypt)
-- Configurez un firewall
-- Activez les logs d'audit
-- Limitez l'accès API par token/IP
-
-## 📝 Structure du projet
-
-```
-vocalyx/
-├── app.py                  # Application principale
-├── config.ini              # Configuration (auto-créé)
-├── config_manager.py       # Outil de gestion config
-├── requirements.txt        # Dépendances Python
-├── test_vocalyx.sh         # Script de test
-├── DEPLOYMENT.md           # Guide de déploiement détaillé
-├── README.md              # Ce fichier
-├── templates/
-│   └── dashboard.html      # Interface web
-├── tmp_uploads/            # Uploads temporaires (auto)
-├── logs/                   # Logs (auto)
-└── transcriptions.db       # Base SQLite (auto)
-```
-
-## 🛠️ Développement
-
-### Tests
 ```bash
-# Test automatique complet
-./test_vocalyx.sh
+# Construction
+make docker-build
 
-# Test avec un fichier spécifique
-./test_vocalyx.sh mon_audio.mp3
+# Lancement
+make docker-run
 
-# Tests unitaires (TODO)
-pytest tests/
+# Logs
+make docker-logs
 ```
 
-### Contribution
-1. Fork le projet
-2. Créer une branche (`git checkout -b feature/amazing`)
-3. Commit (`git commit -m 'Add amazing feature'`)
-4. Push (`git push origin feature/amazing`)
-5. Ouvrir une Pull Request
+## 📈 Monitoring & Logs
+
+### Logs
+
+```bash
+# Logs temps réel
+tail -f logs/vocalyx.log
+tail -f logs/enrichment.log
+
+# Logs par niveau
+grep "\[ERROR\]" logs/vocalyx.log
+```
+
+### Dashboard
+
+Le dashboard web (`http://localhost:8000/dashboard`) affiche :
+- 📊 Liste des transcriptions récentes
+- 🔍 Filtres par statut
+- 📝 Détails complets (segments, enrichissement)
+- 📥 Upload direct depuis l'interface
+
+## 🔒 Sécurité & Confidentialité
+
+- ✅ **100% local** : Aucune donnée n'est envoyée à des services externes
+- ✅ **Offline** : Fonctionne sans connexion internet (après installation)
+- ✅ **RGPD compatible** : Toutes les données restent sur votre infrastructure
+- ✅ **Rate limiting** : Protection contre les abus
+- ✅ **Validation** : Contrôle strict des entrées
+
+## 📚 Documentation
+
+- [Guide de démarrage rapide](docs/QUICKSTART.md)
+- [Guide de déploiement](docs/DEPLOYMENT.md)
+- [Module d'enrichissement](enrichment/README.md)
+- [Guide des logs](docs/LOGS.md)
+
+## 🛠️ Commandes Utiles
+
+```bash
+# Aide complète
+make help
+
+# Infos système
+make info
+
+# URLs disponibles
+make urls
+
+# Configuration
+make config               # Afficher
+make config-validate      # Valider
+make config-reload        # Recharger sans redémarrer
+
+# Base de données
+make db-stats            # Statistiques
+make db-migrate          # Créer tables enrichment
+make clean-db            # Nettoyer (>30j)
+
+# Logs
+make logs                # Afficher
+make clean-logs          # Supprimer
+```
+
+## 🔧 Dépannage
+
+### Transcription lente
+```bash
+# Solution 1 : Modèle plus petit
+make config-speed
+
+# Solution 2 : Plus de workers
+python config_manager.py set PERFORMANCE max_workers 8
+```
+
+### Enrichissement lent
+```ini
+[ENRICHMENT]
+n_threads = 8  # Augmenter threads
+n_ctx = 2048   # Réduire contexte
+```
+
+### Erreur "Out of memory"
+```ini
+[WHISPER]
+model = tiny   # Modèle plus léger
+
+[ENRICHMENT]
+batch_size = 1
+n_ctx = 2048
+```
 
 ## 📞 Support
 
-- 📧 Email: guilhem.l.richard@gmail.com
-- 📚 Documentation API: http://localhost:8000/docs
-- 🐛 Issues: [GitHub Issues](votre-repo/issues)
+- 📧 Email : guilhem.l.richard@gmail.com
+- 📚 Documentation : [docs/](docs/)
+- 🐛 Issues : GitHub Issues
 
 ## 📄 Licence
 
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
+MIT License - Voir `LICENSE` pour plus de détails
 
 ## 🙏 Remerciements
 
-- [faster-whisper](https://github.com/guillaumekln/faster-whisper) - Implémentation performante de Whisper
+- [faster-whisper](https://github.com/guillaumekln/faster-whisper) - Transcription performante
 - [OpenAI Whisper](https://github.com/openai/whisper) - Modèle de base
-- [FastAPI](https://fastapi.tiangolo.com/) - Framework web moderne
+- [Mistral AI](https://mistral.ai/) - Modèle LLM
+- [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) - Inférence locale
+- [FastAPI](https://fastapi.tiangolo.com/) - Framework web
 
 ---
 
-**Vocalyx v1.3.0** - La voix de vos clients, intelligemment exploitée 🎙️
+**Vocalyx v1.4.0** - Transcription + Enrichissement Intelligent 🎙️✨
+
+*La voix de vos clients, intelligemment exploitée*

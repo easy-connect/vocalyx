@@ -15,7 +15,7 @@ function startPolling() {
         const search = document.getElementById("search-input").value;
         
         try {
-            let url = `/transcribe/recent?limit=${currentLimit}&page=${currentPage}`;
+            let url = `/api/transcribe/recent?limit=${currentLimit}&page=${currentPage}`;
             if (status) url += `&status=${status}`;
             if (search) url += `&search=${encodeURIComponent(search)}`;
             

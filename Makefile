@@ -1,219 +1,346 @@
-# Vocalyx Makefile
-# Commandes pratiques pour le développement et la production
+# Vocalyx Makefile - Version restructurée
+# ==========================================
 
-.PHONY: help install run dev test clean config stats deploy
+.PHONY: help install install-enrichment test test-transcribe test-enrich run run-transcribe run-enrichment dev stop clean clean-db clean-all docs
 
 # Variables
 PYTHON := python3
+PIP := $(PYTHON) -m pip
 VENV := venv
-ACTIVATE := . $(VENV)/bin/activate
-PORT := 8000
+BIN := $(VENV)/bin
+PYTHON_BIN := $(BIN)/python3
+PIP_BIN := $(BIN)/pip3
 
 # Couleurs
 RED := \033[0;31m
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
 BLUE := \033[0;34m
-NC := \033[0m # No Color
+NC := \033[0m
 
-help: ## Affiche l'aide
-	@echo "$(BLUE)╔═══════════════════════════════════════╗$(NC)"
-	@echo "$(BLUE)║        Vocalyx - Makefile Help       ║$(NC)"
-	@echo "$(BLUE)╚═══════════════════════════════════════╝$(NC)"
+# ==========================================
+# HELP
+# ==========================================
+
+help:
+	@echo "$(BLUE)╔═══════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(BLUE)║          Vocalyx - Makefile Commands                      ║$(NC)"
+	@echo "$(BLUE)╚═══════════════════════════════════════════════════════════╝$(NC)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}'
+	@echo "$(YELLOW)📦 Installation:$(NC)"
+	@echo "  make install              - Installer Vocalyx (transcription)"
+	@echo "  make install-enrichment   - Installer module enrichissement"
+	@echo "  make install-all          - Tout installer"
+	@echo ""
+	@echo "$(YELLOW)🚀 Exécution:$(NC)"
+	@echo "  make run                  - Lancer l'API principale"
+	@echo "  make run-transcribe       - Lancer uniquement transcription"
+	@echo "  make run-enrichment       - Lancer le worker enrichissement"
+	@echo "  make run-all              - Lancer API + worker enrichissement"
+	@echo "  make dev                  - Mode développement (auto-reload)"
+	@echo "  make stop                 - Arrêter tous les services"
+	@echo ""
+	@echo "$(YELLOW)🧪 Tests:$(NC)"
+	@echo "  make test                 - Tests complets"
+	@echo "  make test-transcribe      - Test transcription"
+	@echo "  make test-enrich          - Test enrichissement"
+	@echo "  make check                - Vérifier l'installation"
+	@echo ""
+	@echo "$(YELLOW)⚙️  Configuration:$(NC)"
+	@echo "  make config               - Afficher la config"
+	@echo "  make config-validate      - Valider config.ini"
+	@echo "  make config-speed         - Preset vitesse"
+	@echo "  make config-balanced      - Preset équilibré"
+	@echo "  make config-accuracy      - Preset précision"
+	@echo ""
+	@echo "$(YELLOW)🗄️  Base de données:$(NC)"
+	@echo "  make db-stats             - Statistiques DB"
+	@echo "  make db-migrate           - Créer tables enrichment"
+	@echo "  make clean-db             - Nettoyer DB (>30 jours)"
+	@echo "  make clean-errors         - Supprimer erreurs"
+	@echo "  make backup-db            - Backup DB"
+	@echo ""
+	@echo "$(YELLOW)🧹 Nettoyage:$(NC)"
+	@echo "  make clean                - Nettoyer fichiers temp"
+	@echo "  make clean-all            - Nettoyage complet"
+	@echo "  make clean-logs           - Supprimer logs"
+	@echo ""
+	@echo "$(YELLOW)📚 Documentation:$(NC)"
+	@echo "  make docs                 - Ouvrir documentation"
+	@echo "  make urls                 - Afficher URLs utiles"
+	@echo "  make info                 - Infos système"
+	@echo ""
+	@echo "$(YELLOW)🔧 Modèles LLM:$(NC)"
+	@echo "  make download-model       - Télécharger modèle recommandé"
+	@echo "  make list-models          - Lister modèles disponibles"
 	@echo ""
 
-install: ## Installe les dépendances
-	@echo "$(BLUE)📦 Installation des dépendances...$(NC)"
-	@$(PYTHON) -m venv $(VENV)
-	@$(ACTIVATE) && pip install --upgrade pip
-	@$(ACTIVATE) && pip install -r requirements.txt
-	@echo "$(GREEN)✅ Installation terminée$(NC)"
+# ==========================================
+# INSTALLATION
+# ==========================================
+
+install:
+	@echo "$(GREEN)📦 Installation de Vocalyx (transcription)...$(NC)"
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "$(YELLOW)Création environnement virtuel...$(NC)"; \
+		$(PYTHON) -m venv $(VENV); \
+	fi
+	@echo "$(YELLOW)Installation dépendances...$(NC)"
+	@$(PIP_BIN) install --upgrade pip
+	@$(PIP_BIN) install -r requirements-transcribe.txt
+	@$(PIP_BIN) install -r requirements-enrichment.txt
+	@mkdir -p tmp_uploads logs models
+	@echo "$(GREEN)✅ Installation terminée !$(NC)"
 	@echo ""
-	@echo "$(YELLOW)Activation de l'environnement:$(NC)"
-	@echo "  source $(VENV)/bin/activate"
+	@echo "$(BLUE)Prochaines étapes :$(NC)"
+	@echo "  1. $(YELLOW)make config-balanced$(NC) - Configurer"
+	@echo "  2. $(YELLOW)make run$(NC) - Lancer l'API"
+	@echo "  3. $(YELLOW)make test$(NC) - Tester"
 
-run: ## Lance l'application en production
-	@echo "$(BLUE)🚀 Lancement de Vocalyx...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) app.py
-
-dev: ## Lance l'application en mode développement (auto-reload)
-	@echo "$(BLUE)🔧 Mode développement (auto-reload)...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) app.py
-
-test: ## Lance les tests
-	@echo "$(BLUE)🧪 Lancement des tests...$(NC)"
-	@chmod +x test_vocalyx.sh
-	@./test_vocalyx.sh
-
-test-file: ## Teste avec un fichier spécifique (usage: make test-file FILE=audio.wav)
-	@if [ -z "$(FILE)" ]; then \
-		echo "$(RED)❌ Erreur: Spécifiez un fichier avec FILE=chemin$(NC)"; \
-		echo "Exemple: make test-file FILE=mon_audio.wav"; \
+install-enrichment:
+	@echo "$(GREEN)🎨 Installation module enrichissement...$(NC)"
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "$(RED)❌ Vocalyx doit être installé d'abord !$(NC)"; \
+		echo "$(YELLOW)Exécutez: make install$(NC)"; \
 		exit 1; \
 	fi
-	@echo "$(BLUE)🧪 Test avec $(FILE)...$(NC)"
-	@./test_vocalyx.sh $(FILE)
-
-config: ## Affiche la configuration actuelle
-	@echo "$(BLUE)⚙️  Configuration actuelle:$(NC)"
+	@$(PIP_BIN) install llama-cpp-python psutil python-json-logger
+	@echo "$(GREEN)✅ Module enrichissement installé !$(NC)"
 	@echo ""
-	@$(ACTIVATE) && $(PYTHON) config_manager.py show
+	@echo "$(BLUE)Prochaines étapes :$(NC)"
+	@echo "  1. $(YELLOW)make download-model$(NC) - Télécharger modèle LLM"
+	@echo "  2. $(YELLOW)make db-migrate$(NC) - Créer tables"
+	@echo "  3. $(YELLOW)make run-enrichment$(NC) - Lancer worker"
 
-config-validate: ## Valide la configuration
-	@echo "$(BLUE)✓ Validation de la configuration...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) config_manager.py validate
+install-all: install install-enrichment
+	@echo "$(GREEN)✅ Installation complète terminée !$(NC)"
 
-config-speed: ## Applique le preset vitesse
-	@echo "$(YELLOW)🚀 Application du preset VITESSE...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) config_manager.py preset speed
+# ==========================================
+# EXÉCUTION
+# ==========================================
 
-config-balanced: ## Applique le preset équilibré (recommandé)
-	@echo "$(YELLOW)⚖️  Application du preset ÉQUILIBRÉ...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) config_manager.py preset balanced
+run:
+	@echo "$(GREEN)🚀 Lancement Vocalyx API...$(NC)"
+	@$(PYTHON_BIN) app.py
 
-config-accuracy: ## Applique le preset précision
-	@echo "$(YELLOW)🎯 Application du preset PRÉCISION...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) config_manager.py preset accuracy
+run-transcribe: run
 
-stats: ## Affiche les statistiques de la base de données
-	@echo "$(BLUE)📊 Statistiques de la base...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) cleanup_db.py --stats
+run-enrichment:
+	@echo "$(GREEN)🎨 Lancement worker enrichissement...$(NC)"
+	@if [ ! -f "run_enrichment.py" ]; then \
+		echo "$(RED)❌ run_enrichment.py non trouvé !$(NC)"; \
+		exit 1; \
+	fi
+	@$(PYTHON_BIN) run_enrichment.py
 
-clean-db: ## Nettoie la base (transcriptions > 30 jours)
-	@echo "$(YELLOW)🧹 Nettoyage de la base (>30 jours)...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) cleanup_db.py --days 30 --incomplete --vacuum
+run-all:
+	@echo "$(GREEN)🚀 Lancement Vocalyx complet (API + Worker)...$(NC)"
+	@$(PYTHON_BIN) app.py & \
+	sleep 5 && \
+	$(PYTHON_BIN) run_enrichment.py &
+	@echo "$(GREEN)✅ Services démarrés !$(NC)"
+	@echo "$(YELLOW)Pour arrêter: make stop$(NC)"
 
-clean-errors: ## Supprime uniquement les transcriptions en erreur
-	@echo "$(YELLOW)🧹 Suppression des erreurs...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) cleanup_db.py --status error --vacuum
+dev:
+	@echo "$(GREEN)🔧 Mode développement (auto-reload)...$(NC)"
+	@$(BIN)/uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
-clean-all: ## Nettoie agressivement (>7 jours + erreurs)
-	@echo "$(RED)⚠️  Nettoyage agressif (>7 jours)...$(NC)"
-	@$(ACTIVATE) && $(PYTHON) cleanup_db.py --days 7 --status error --incomplete --vacuum
+stop:
+	@echo "$(YELLOW)🛑 Arrêt des services...$(NC)"
+	@pkill -f "app:app" || true
+	@pkill -f "run_enrichment.py" || true
+	@echo "$(GREEN)✅ Services arrêtés$(NC)"
 
-clean: ## Nettoie les fichiers temporaires
-	@echo "$(BLUE)🧹 Nettoyage des fichiers temporaires...$(NC)"
-	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	@find . -type f -name "*.pyo" -delete 2>/dev/null || true
-	@find . -type f -name "*.log" -delete 2>/dev/null || true
-	@rm -rf .pytest_cache 2>/dev/null || true
-	@rm -rf htmlcov 2>/dev/null || true
-	@rm -rf tmp_uploads/* 2>/dev/null || true
-	@echo "$(GREEN)✅ Nettoyage terminé$(NC)"
+# ==========================================
+# TESTS
+# ==========================================
 
-reset: clean ## Reset complet (supprime DB et config)
-	@echo "$(RED)⚠️  RESET COMPLET - Suppression DB et config...$(NC)"
-	@read -p "Êtes-vous sûr? (y/N): " confirm; \
-	if [ "$$confirm" = "y" ]; then \
-		rm -f transcriptions.db config.ini; \
-		echo "$(GREEN)✅ Reset terminé$(NC)"; \
+test:
+	@echo "$(GREEN)🧪 Tests complets...$(NC)"
+	@bash scripts/test_vocalyx.sh
+
+test-transcribe:
+	@echo "$(GREEN)🧪 Test transcription...$(NC)"
+	@if [ -z "$(FILE)" ]; then \
+		bash scripts/test_vocalyx.sh; \
 	else \
-		echo "$(YELLOW)❌ Annulé$(NC)"; \
+		bash scripts/test_vocalyx.sh $(FILE); \
 	fi
 
-logs: ## Affiche les logs en temps réel
-	@if [ -f logs/vocalyx.log ]; then \
-		tail -f logs/vocalyx.log; \
-	else \
-		echo "$(YELLOW)⚠️  Pas de logs disponibles$(NC)"; \
-	fi
+test-enrich:
+	@echo "$(GREEN)🧪 Test enrichissement...$(NC)"
+	@$(PYTHON_BIN) -c "from enrichment.worker import test_enrichment; test_enrichment()" || \
+		echo "$(YELLOW)⚠️  Test enrichissement non encore implémenté$(NC)"
 
-docker-build: ## Construit l'image Docker
-	@echo "$(BLUE)🐳 Construction de l'image Docker...$(NC)"
-	@docker build -t vocalyx:latest .
-	@echo "$(GREEN)✅ Image construite: vocalyx:latest$(NC)"
-
-docker-run: ## Lance le conteneur Docker
-	@echo "$(BLUE)🐳 Lancement du conteneur Docker...$(NC)"
-	@docker run -d \
-		-p $(PORT):8000 \
-		-v $(PWD)/config.ini:/app/config.ini \
-		-v $(PWD)/tmp_uploads:/app/tmp_uploads \
-		-v $(PWD)/transcriptions.db:/app/transcriptions.db \
-		--name vocalyx \
-		vocalyx:latest
-	@echo "$(GREEN)✅ Conteneur lancé sur http://localhost:$(PORT)$(NC)"
-
-docker-stop: ## Arrête le conteneur Docker
-	@echo "$(BLUE)🐳 Arrêt du conteneur...$(NC)"
-	@docker stop vocalyx || true
-	@docker rm vocalyx || true
-	@echo "$(GREEN)✅ Conteneur arrêté$(NC)"
-
-docker-logs: ## Affiche les logs Docker
-	@docker logs -f vocalyx
-
-deploy: ## Guide de déploiement
-	@echo "$(BLUE)📚 Guide de déploiement:$(NC)"
+check:
+	@echo "$(BLUE)🔍 Vérification installation...$(NC)"
 	@echo ""
-	@echo "1. $(YELLOW)Configuration:$(NC)"
-	@echo "   make config-balanced"
-	@echo ""
-	@echo "2. $(YELLOW)Validation:$(NC)"
-	@echo "   make config-validate"
-	@echo ""
-	@echo "3. $(YELLOW)Test:$(NC)"
-	@echo "   make test"
-	@echo ""
-	@echo "4. $(YELLOW)Déploiement:$(NC)"
-	@echo "   - Systemd: voir DEPLOYMENT.md"
-	@echo "   - Docker: make docker-build && make docker-run"
-	@echo ""
-	@echo "$(GREEN)📖 Plus d'infos: DEPLOYMENT.md$(NC)"
-
-check: ## Vérifie l'installation et la configuration
-	@echo "$(BLUE)🔍 Vérification de l'installation...$(NC)"
-	@echo ""
-	@echo "$(YELLOW)1. Python version:$(NC)"
+	@echo "$(YELLOW)Python:$(NC)"
 	@$(PYTHON) --version || echo "$(RED)❌ Python non trouvé$(NC)"
 	@echo ""
-	@echo "$(YELLOW)2. Environnement virtuel:$(NC)"
+	@echo "$(YELLOW)FFmpeg:$(NC)"
+	@ffmpeg -version | head -1 || echo "$(RED)❌ FFmpeg non trouvé$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Environnement virtuel:$(NC)"
 	@if [ -d "$(VENV)" ]; then \
 		echo "$(GREEN)✅ venv existe$(NC)"; \
 	else \
-		echo "$(RED)❌ venv manquant (exécutez: make install)$(NC)"; \
+		echo "$(RED)❌ venv n'existe pas$(NC)"; \
 	fi
 	@echo ""
-	@echo "$(YELLOW)3. FFmpeg:$(NC)"
-	@which ffmpeg > /dev/null && echo "$(GREEN)✅ ffmpeg installé$(NC)" || echo "$(RED)❌ ffmpeg manquant$(NC)"
+	@echo "$(YELLOW)Dépendances:$(NC)"
+	@$(PIP_BIN) list | grep -E "(fastapi|faster-whisper|uvicorn)" || echo "$(RED)❌ Dépendances manquantes$(NC)"
 	@echo ""
-	@echo "$(YELLOW)4. Configuration:$(NC)"
-	@if [ -f "config.ini" ]; then \
-		echo "$(GREEN)✅ config.ini existe$(NC)"; \
-		$(ACTIVATE) && $(PYTHON) config_manager.py validate; \
-	else \
-		echo "$(YELLOW)⚠️  config.ini sera créé au premier lancement$(NC)"; \
-	fi
-	@echo ""
-	@echo "$(YELLOW)5. Structure des dossiers:$(NC)"
-	@if [ -d "templates" ]; then echo "$(GREEN)✅ templates/$(NC)"; else echo "$(RED)❌ templates/ manquant$(NC)"; fi
-	@if [ -d "tmp_uploads" ]; then echo "$(GREEN)✅ tmp_uploads/$(NC)"; else echo "$(YELLOW)⚠️  tmp_uploads/ sera créé$(NC)"; fi
+	@echo "$(YELLOW)Fichiers:$(NC)"
+	@ls -lh config.ini database.py app.py 2>/dev/null || echo "$(RED)❌ Fichiers manquants$(NC)"
 
-info: ## Affiche les informations du système
-	@echo "$(BLUE)ℹ️  Informations système:$(NC)"
+# ==========================================
+# CONFIGURATION
+# ==========================================
+
+config:
+	@$(PYTHON_BIN) scripts/config_manager.py show
+
+config-validate:
+	@$(PYTHON_BIN) scripts/config_manager.py validate
+
+config-speed:
+	@$(PYTHON_BIN) scripts/config_manager.py preset speed
+	@echo "$(GREEN)✅ Preset vitesse appliqué$(NC)"
+
+config-balanced:
+	@$(PYTHON_BIN) scripts/config_manager.py preset balanced
+	@echo "$(GREEN)✅ Preset équilibré appliqué$(NC)"
+
+config-accuracy:
+	@$(PYTHON_BIN) scripts/config_manager.py preset accuracy
+	@echo "$(GREEN)✅ Preset précision appliqué$(NC)"
+
+# ==========================================
+# BASE DE DONNÉES
+# ==========================================
+
+db-stats:
+	@$(PYTHON_BIN) scripts/cleanup_db.py --stats
+
+db-migrate:
+	@echo "$(GREEN)🗄️  Migration base de données (tables enrichment)...$(NC)"
+	@$(PYTHON_BIN) -c "from enrichment.models import create_tables; create_tables()"
+	@echo "$(GREEN)✅ Tables créées !$(NC)"
+
+clean-db:
+	@$(PYTHON_BIN) scripts/cleanup_db.py --days 30 --incomplete --vacuum
+
+clean-errors:
+	@$(PYTHON_BIN) scripts/cleanup_db.py --status error
+
+backup-db:
+	@mkdir -p backups
+	@cp transcriptions.db backups/transcriptions_$(shell date +%Y%m%d_%H%M%S).db
+	@echo "$(GREEN)✅ Backup créé dans backups/$(NC)"
+
+# ==========================================
+# NETTOYAGE
+# ==========================================
+
+clean:
+	@echo "$(YELLOW)🧹 Nettoyage fichiers temporaires...$(NC)"
+	@rm -rf tmp_uploads/*
+	@rm -rf __pycache__ */__pycache__ */*/__pycache__
+	@rm -rf .pytest_cache
+	@find . -name "*.pyc" -delete
+	@find . -name "*.pyo" -delete
+	@echo "$(GREEN)✅ Nettoyage terminé$(NC)"
+
+clean-logs:
+	@echo "$(YELLOW)🧹 Suppression logs...$(NC)"
+	@rm -rf logs/*.log
+	@echo "$(GREEN)✅ Logs supprimés$(NC)"
+
+clean-all: clean clean-logs
+	@echo "$(YELLOW)🧹 Nettoyage complet...$(NC)"
+	@rm -rf $(VENV)
+	@echo "$(GREEN)✅ Nettoyage complet terminé$(NC)"
+
+# ==========================================
+# MODÈLES LLM
+# ==========================================
+
+download-model:
+	@echo "$(GREEN)📥 Téléchargement modèle recommandé (Mistral-7B-Instruct Q4_K_M)...$(NC)"
+	@mkdir -p models
+	@cd models && wget -c https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/mistral-7b-instruct-v0.3.Q4_K_M.gguf
+	@echo "$(GREEN)✅ Modèle téléchargé dans models/$(NC)"
+
+list-models:
+	@echo "$(BLUE)📋 Modèles disponibles dans models/:$(NC)"
+	@ls -lh models/*.gguf 2>/dev/null || echo "$(YELLOW)Aucun modèle téléchargé$(NC)"
+
+# ==========================================
+# DOCUMENTATION
+# ==========================================
+
+docs:
+	@if command -v xdg-open &> /dev/null; then \
+		xdg-open docs/README.md; \
+	elif command -v open &> /dev/null; then \
+		open docs/README.md; \
+	else \
+		cat docs/README.md; \
+	fi
+
+urls:
+	@echo "$(BLUE)🌐 URLs utiles :$(NC)"
+	@echo ""
+	@echo "  $(YELLOW)Dashboard:$(NC)     http://localhost:8000/dashboard"
+	@echo "  $(YELLOW)API Docs:$(NC)      http://localhost:8000/docs"
+	@echo "  $(YELLOW)Health:$(NC)        http://localhost:8000/health"
+	@echo "  $(YELLOW)Config:$(NC)        http://localhost:8000/config"
+	@echo ""
+
+info:
+	@echo "$(BLUE)ℹ️  Informations système :$(NC)"
 	@echo ""
 	@echo "$(YELLOW)OS:$(NC)"
-	@uname -s
+	@uname -a
 	@echo ""
 	@echo "$(YELLOW)CPU:$(NC)"
-	@lscpu | grep "^Model name" || sysctl -n machdep.cpu.brand_string || echo "N/A"
-	@echo ""
-	@echo "$(YELLOW)Cores:$(NC)"
-	@nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "N/A"
+	@lscpu | grep "Model name" || sysctl -n machdep.cpu.brand_string
 	@echo ""
 	@echo "$(YELLOW)RAM:$(NC)"
-	@free -h 2>/dev/null | grep Mem || vm_stat 2>/dev/null | head -5 || echo "N/A"
-
-urls: ## Affiche les URLs utiles
-	@echo "$(BLUE)🔗 URLs utiles:$(NC)"
+	@free -h | grep Mem || vm_stat | grep "Pages free"
 	@echo ""
-	@echo "  $(GREEN)Dashboard:$(NC)    http://localhost:$(PORT)/dashboard"
-	@echo "  $(GREEN)API Docs:$(NC)     http://localhost:$(PORT)/docs"
-	@echo "  $(GREEN)Health:$(NC)       http://localhost:$(PORT)/health"
-	@echo "  $(GREEN)Config:$(NC)       http://localhost:$(PORT)/config"
+	@echo "$(YELLOW)Disque:$(NC)"
+	@df -h . | tail -1
 	@echo ""
 
-.DEFAULT_GOAL := help
+# ==========================================
+# DÉVELOPPEMENT
+# ==========================================
+
+lint:
+	@echo "$(GREEN)🔍 Linting code...$(NC)"
+	@$(PIP_BIN) install flake8 black || true
+	@$(BIN)/flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+	@$(BIN)/black --check .
+
+format:
+	@echo "$(GREEN)✨ Formatage code...$(NC)"
+	@$(PIP_BIN) install black || true
+	@$(BIN)/black .
+
+# ==========================================
+# DOCKER (optionnel)
+# ==========================================
+
+docker-build:
+	@docker build -t vocalyx:latest .
+
+docker-run:
+	@docker run -d -p 8000:8000 -v $(PWD)/config.ini:/app/config.ini --name vocalyx vocalyx:latest
+
+docker-stop:
+	@docker stop vocalyx && docker rm vocalyx
+
+docker-logs:
+	@docker logs -f vocalyx

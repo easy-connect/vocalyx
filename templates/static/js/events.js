@@ -16,7 +16,7 @@ document.getElementById("upload-input").addEventListener("change", async (event)
     loadingOverlay.style.display = "flex";
     
     try {
-        const resp = await fetch("/transcribe", {
+        const resp = await fetch("/api/transcribe", {
             method: "POST",
             body: formData
         });
@@ -37,7 +37,7 @@ document.getElementById("upload-input").addEventListener("change", async (event)
 
 document.getElementById("export-btn").addEventListener("click", async () => {
     try {
-        const resp = await fetch("/transcribe/export");
+        const resp = await fetch("/api/transcribe/export");
         if (!resp.ok) throw new Error(`Erreur: ${resp.status}`);
         const data = await resp.json();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

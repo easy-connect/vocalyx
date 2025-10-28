@@ -18,7 +18,7 @@ function attachDetailEvents() {
                 </div>
             `;
             try {
-                const resp = await fetch(`/transcribe/${id}`);
+                const resp = await fetch(`/api/transcribe/${id}`);
                 if (!resp.ok) throw new Error(`Erreur: ${resp.status}`);
                 const data = await resp.json();
                 renderTranscriptionModal(data);
@@ -43,7 +43,7 @@ function attachDeleteEvents() {
             if (!confirm(`Supprimer la transcription ${id.substring(0, 8)}... ?`)) return;
             
             try {
-                const resp = await fetch(`/transcribe/${id}`, { method: "DELETE" });
+                const resp = await fetch(`/api/transcribe/${id}`, { method: "DELETE" });
                 if (!resp.ok) throw new Error(await resp.text());
                 showToast(`Transcription supprimée !`, "success");
                 
@@ -70,7 +70,7 @@ async function refreshCards(page=1, limit=10) {
     currentLimit = limit;
     
     try {
-        let url = `/transcribe/recent?limit=${limit}&page=${page}`;
+        let url = `/api/transcribe/recent?limit=${limit}&page=${page}`;
         if (status) url += `&status=${status}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
         
@@ -79,7 +79,7 @@ async function refreshCards(page=1, limit=10) {
         const entries = await resp.json();
         
         // Récupérer le total pour la pagination
-        let countUrl = `/transcribe/count?`;
+        let countUrl = `/api/transcribe/count?`;
         if (status) countUrl += `status=${status}&`;
         if (search) countUrl += `search=${encodeURIComponent(search)}`;
         

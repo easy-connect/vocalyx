@@ -6,42 +6,35 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
+dist/
+build/
 venv/
 env/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
-# FastAPI / Uvicorn
-.pytest_cache/
-.coverage
-htmlcov/
+# Database
+*.db
+*.sqlite
+*.sqlite3
+transcriptions.db
+backups/*.db
+
+# Logs
+logs/*.log
 *.log
 
-# Vocalyx specific
-tmp_uploads/
-*.db
-*.db-journal
-logs/
-test_audio.wav
+# Uploads temporaires
+tmp_uploads/*
+!tmp_uploads/.gitkeep
 
-# Configuration (ne pas commiter les configs personnalisées)
-config.ini
-# Garder le fichier d'exemple
-!config.ini.example
+# Modèles LLM (trop gros pour Git)
+models/*.gguf
+models/*.bin
+!models/README.md
+
+# Config locale (peut contenir secrets)
+.env
+*.local.ini
 
 # IDE
 .vscode/
@@ -51,17 +44,16 @@ config.ini
 *~
 .DS_Store
 
-# Audio files (ne pas commiter les fichiers de test)
-*.wav
-*.mp3
-*.m4a
-*.flac
-*.ogg
-*.webm
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Backup files
+# Backups de migration
+backup_*/
 *.bak
-*.backup
+*.tmp
 
-# OS
-Thumbs.db
+# Systemd
+*.pid
+*.sock

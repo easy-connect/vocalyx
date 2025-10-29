@@ -1,25 +1,38 @@
 """
 enrichment_service.py
 
-Service complet d'enrichissement : API + Worker en un seul processus
-Équivalent de app.py mais pour l'enrichissement uniquement
+Service complet d'enrichissement : API + Worker automatique
+Architecture identique à app.py (transcription)
 """
 
 import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
+
+# Configuration logs llama-cpp
+os.environ['LLAMA_CPP_LOG_LEVEL'] = '3'
+import warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='llama_cpp')
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import uvicorn
 
 from database import engine, Base
 from api.enrichment_endpoints import router as enrichment_router
 from logging_config import setup_logging, get_uvicorn_log_config
+
+# Import du nouveau moteur
+from enrichment.engine import (
+    initialize_enrichment_engine,
+    cleanup_enrichment_resources,
+    enrichment_config
+)
 
 # Initialiser le logging
 logger = setup_logging(
@@ -27,11 +40,73 @@ logger = setup_logging(
     log_file="logs/enrichment.log"
 )
 
-# Créer les tables si nécessaire
+# Créer les tables
 Base.metadata.create_all(bind=engine)
 
-# Variable globale pour le worker
+# Variable pour le worker automatique
 worker_task = None
+
+
+async def auto_enrichment_worker():
+    """
+    Worker automatique qui enrichit les transcriptions terminées.
+    Tourne en arrière-plan et utilise l'executor du moteur.
+    """
+    from database import SessionLocal, Transcription
+    from enrichment.models import Enrichment, get_pending_enrichments
+    from enrichment.engine import run_enrichment_async
+    from sqlalchemy import and_
+    
+    logger.info("🚀 Worker automatique d'enrichissement démarré")
+    
+    while True:
+        try:
+            # Récupérer les transcriptions à enrichir
+            db = SessionLocal()
+            
+            # Sous-requête pour les IDs déjà enrichis
+            subquery = db.query(Enrichment.transcription_id).filter(
+                Enrichment.status.in_(['done', 'processing', 'pending'])
+            )
+            
+            transcriptions = (
+                db.query(Transcription)
+                .filter(
+                    and_(
+                        Transcription.status == 'done',
+                        Transcription.enrichment_requested == 1,
+                        ~Transcription.id.in_(subquery)
+                    )
+                )
+                .limit(enrichment_config.batch_size if enrichment_config else 3)
+                .all()
+            )
+            
+            db.close()
+            
+            if transcriptions:
+                logger.info(f"📊 {len(transcriptions)} transcription(s) à enrichir")
+                
+                # Lancer les enrichissements en parallèle (non-bloquant)
+                tasks = []
+                for trans in transcriptions:
+                    task = asyncio.create_task(run_enrichment_async(trans.id))
+                    tasks.append(task)
+                
+                # Attendre que tous soient terminés
+                await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Attendre avant le prochain cycle
+            poll_interval = enrichment_config.poll_interval_seconds if enrichment_config else 15
+            await asyncio.sleep(poll_interval)
+            
+        except asyncio.CancelledError:
+            logger.info("✅ Worker automatique arrêté")
+            raise
+        except Exception as e:
+            logger.exception(f"❌ Erreur dans le worker automatique: {e}")
+            await asyncio.sleep(5)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,31 +114,17 @@ async def lifespan(app: FastAPI):
     global worker_task
     
     logger.info("=" * 60)
-    logger.info("🎨 Démarrage du service d'enrichissement complet")
+    logger.info("🎨 Démarrage du service d'enrichissement")
     logger.info("=" * 60)
     
-    # Charger et valider la config
-    from enrichment.config import EnrichmentConfig
-    config = EnrichmentConfig()
+    # Initialiser le moteur (processeur + executor)
+    await initialize_enrichment_engine()
     
-    if not config.enabled:
-        logger.warning("⚠️  Enrichissement désactivé dans config.ini")
-    else:
-        logger.info(f"✅ Config chargée: {config.model_path}")
-        
-        # Valider
-        is_valid, errors = config.validate()
-        if not is_valid:
-            logger.error("❌ Configuration invalide:")
-            for error in errors:
-                logger.error(f"   • {error}")
-        else:
-            logger.info("✅ Configuration validée")
-            
-            # Démarrer le worker en background
-            logger.info("🔄 Démarrage du worker d'enrichissement...")
-            worker_task = asyncio.create_task(run_worker(config))
-            logger.info("✅ Worker démarré en arrière-plan")
+    # Démarrer le worker automatique
+    if enrichment_config and enrichment_config.enabled:
+        logger.info("🔄 Démarrage du worker automatique...")
+        worker_task = asyncio.create_task(auto_enrichment_worker())
+        logger.info("✅ Worker automatique démarré")
     
     logger.info("=" * 60)
     
@@ -74,52 +135,17 @@ async def lifespan(app: FastAPI):
     
     # Arrêter le worker
     if worker_task and not worker_task.done():
-        logger.info("🛑 Arrêt du worker...")
+        logger.info("🛑 Arrêt du worker automatique...")
         worker_task.cancel()
         try:
             await worker_task
         except asyncio.CancelledError:
-            logger.info("✅ Worker arrêté")
-
-
-async def run_worker(config):
-    """
-    Worker d'enrichissement qui tourne en continu.
-    Équivalent de run_enrichment.py mais en async.
-    """
-    from enrichment.worker import EnrichmentWorker
+            pass
     
-    try:
-        worker = EnrichmentWorker(config)
-        
-        # Boucle principale
-        while True:
-            try:
-                # Récupérer transcriptions à enrichir
-                transcriptions = worker._get_pending_transcriptions()
-                
-                if transcriptions:
-                    logger.info(f"📊 {len(transcriptions)} transcription(s) à enrichir")
-                    
-                    # Traiter chaque transcription
-                    for trans in transcriptions:
-                        worker._process_transcription(trans)
-                    
-                    # Log stats
-                    worker._log_stats()
-                
-                # Attendre avant le prochain cycle
-                await asyncio.sleep(config.poll_interval_seconds)
-                
-            except Exception as e:
-                logger.exception(f"❌ Erreur dans le worker: {e}")
-                await asyncio.sleep(5)  # Attendre avant de retenter
-        
-    except asyncio.CancelledError:
-        logger.info("✅ Worker arrêté proprement")
-        raise
-    except Exception as e:
-        logger.exception(f"❌ Erreur fatale dans le worker: {e}")
+    # Nettoyer le moteur
+    await cleanup_enrichment_resources()
+    
+    logger.info("✅ Service arrêté proprement")
 
 
 # Créer l'application FastAPI
@@ -127,7 +153,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Vocalyx Enrichment Service",
-    description="Service complet d'enrichissement (API + Worker)",
+    description="Service d'enrichissement avec worker automatique intégré",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -153,23 +179,19 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(enrichment_router, prefix="/api")
 
 
-# ========================================
 # Endpoints de base
-# ========================================
-
 @app.get("/", tags=["Root"])
 def root():
     """Page d'accueil"""
     return {
-        "service": "Vocalyx Enrichment Service (API + Worker)",
+        "service": "Vocalyx Enrichment Service",
         "version": "1.0.0",
         "status": "running",
-        "components": ["API", "Background Worker"],
+        "architecture": "API + Worker automatique (comme transcription)",
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
             "trigger": "/api/enrichment/trigger/{transcription_id}",
-            "get": "/api/enrichment/{transcription_id}",
             "stats": "/api/enrichment/stats/summary"
         }
     }
@@ -178,25 +200,29 @@ def root():
 @app.get("/health", tags=["System"])
 def health_check():
     """Health check"""
-    from enrichment.config import EnrichmentConfig
+    from enrichment.engine import enrichment_processor, enrichment_executor
     from enrichment.models import get_stats_summary
     from database import SessionLocal
-    from datetime import datetime
     
     status = "healthy"
     issues = []
     
-    # Vérifier config
-    try:
-        config = EnrichmentConfig()
-        if not config.enabled:
-            issues.append("Enrichment disabled in config")
-            status = "degraded"
-    except Exception as e:
-        issues.append(f"Config error: {str(e)}")
-        status = "unhealthy"
+    # Vérifier le moteur
+    if enrichment_processor is None:
+        issues.append("Enrichment engine not loaded")
+        status = "degraded"
     
-    # Vérifier DB
+    if enrichment_executor is None:
+        issues.append("Executor not initialized")
+        status = "degraded"
+    
+    # Vérifier le worker
+    global worker_task
+    if worker_task is None or worker_task.done():
+        issues.append("Auto worker not running")
+        status = "degraded"
+    
+    # Stats DB
     try:
         db = SessionLocal()
         stats = get_stats_summary(db)
@@ -204,20 +230,18 @@ def health_check():
     except Exception as e:
         issues.append(f"Database error: {str(e)}")
         status = "unhealthy"
-    
-    # Vérifier worker
-    global worker_task
-    if worker_task is None or worker_task.done():
-        issues.append("Worker not running")
-        status = "degraded"
+        stats = None
     
     return {
         "status": status,
         "service": "enrichment",
         "components": {
             "api": "running",
-            "worker": "running" if worker_task and not worker_task.done() else "stopped"
+            "engine": "loaded" if enrichment_processor else "not loaded",
+            "executor": "running" if enrichment_executor else "not running",
+            "auto_worker": "running" if worker_task and not worker_task.done() else "stopped"
         },
+        "stats": stats,
         "timestamp": datetime.utcnow().isoformat(),
         "issues": issues if issues else None
     }

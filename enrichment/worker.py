@@ -58,6 +58,21 @@ class EnrichmentWorker:
         )
         
         logger.info(f"✨ EnrichmentWorker initialisé: {config}")
+
+    async def process_transcription_async(self, transcription: Transcription):
+        """
+        Version asynchrone de _process_transcription.
+        Utilise run_in_executor pour ne pas bloquer.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Exécuter le traitement dans un thread séparé
+        await loop.run_in_executor(
+            None,  # Utilise le default executor
+            self._process_transcription,
+            transcription
+        )
     
     def start(self):
         """Démarre le worker"""

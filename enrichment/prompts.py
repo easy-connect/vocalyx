@@ -70,7 +70,9 @@ class PromptBuilder:
         instruction = template.format(text=text)
         
         if self.model_type == "mistral":
-            return f"<s>[INST] {SYSTEM_PROMPT}\n\n{instruction} [/INST]"
+
+            return f"[INST] {SYSTEM_PROMPT}\n\n{instruction} [/INST]"
+        
         elif self.model_type == "llama":
             return f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_PROMPT}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{instruction}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
         else:

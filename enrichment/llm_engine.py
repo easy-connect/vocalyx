@@ -100,12 +100,7 @@ class LLMEngine:
         self.total_generation_time = 0.0
         
     def load(self) -> bool:
-        """
-        Charge le modèle en mémoire
-        
-        Returns:
-            True si succès, False sinon
-        """
+        """Charge le modèle en mémoire"""
         if self.is_loaded:
             logger.warning("Modèle déjà chargé")
             return True
@@ -118,15 +113,29 @@ class LLMEngine:
             logger.info(f"🔄 Chargement du modèle: {self.model_path.name}")
             start_time = time.time()
             
-            self.model = Llama(
-                model_path=str(self.model_path),
-                n_ctx=self.n_ctx,
-                n_threads=self.n_threads,
-                n_batch=self.n_batch,
-                verbose=self.verbose,
-                use_mmap=True,  # Utiliser memory-mapping pour économiser RAM
-                use_mlock=False,  # Ne pas lock en RAM (permet swap)
-            )
+            # Supprimer les logs llama-cpp pendant le chargement
+            import sys
+            import os
+            old_stderr = sys.stderr
+            
+            try:
+                # Rediriger stderr vers /dev/null
+                sys.stderr = open(os.devnull, 'w')
+                
+                self.model = Llama(
+                    model_path=str(self.model_path),
+                    n_ctx=self.n_ctx,
+                    n_threads=self.n_threads,
+                    n_batch=self.n_batch,
+                    verbose=False,
+                    use_mmap=True,
+                    use_mlock=False,
+                    logits_all=False,
+                )
+            finally:
+                # Restaurer stderr
+                sys.stderr.close()
+                sys.stderr = old_stderr
             
             load_time = time.time() - start_time
             

@@ -111,6 +111,7 @@ async def run_transcription_optimized(
 
     entry.status = "processing"
     entry.vad_enabled = 1 if use_vad else 0
+    
     db.commit()
     
     segment_paths = []

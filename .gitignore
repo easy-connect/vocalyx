@@ -10,7 +10,9 @@ __pycache__/
 dist/
 build/
 venv/
+.venv/
 env/
+models/transcribe/
 
 # Database
 *.db

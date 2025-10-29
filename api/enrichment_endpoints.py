@@ -32,10 +32,13 @@ router = APIRouter(prefix="/enrichment", tags=["Enrichment"])
 # Modèles Pydantic pour les réponses
 # ========================================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class EnrichmentResponse(BaseModel):
     """Réponse d'enrichissement"""
+    
+    model_config = ConfigDict(protected_namespaces=())
+
     id: int
     transcription_id: str
     status: str
@@ -45,7 +48,7 @@ class EnrichmentResponse(BaseModel):
     sentiment: Optional[str] = None
     sentiment_confidence: Optional[float] = None
     topics: Optional[list] = None
-    model_used: Optional[str] = None
+    llm_model: Optional[str] = None
     generation_time: Optional[float] = None
     tokens_generated: Optional[int] = None
     retry_count: int
@@ -202,7 +205,7 @@ async def get_enrichment(
         sentiment=enrichment.sentiment,
         sentiment_confidence=enrichment.sentiment_confidence,
         topics=enrichment.topics,
-        model_used=enrichment.model_used,
+        llm_model=enrichment.llm_model,
         generation_time=enrichment.generation_time,
         tokens_generated=enrichment.tokens_generated,
         retry_count=enrichment.retry_count,
@@ -237,7 +240,7 @@ async def list_pending_enrichments(
             sentiment=e.sentiment,
             sentiment_confidence=e.sentiment_confidence,
             topics=e.topics,
-            model_used=e.model_used,
+            llm_model=e.llm_model,
             generation_time=e.generation_time,
             tokens_generated=e.tokens_generated,
             retry_count=e.retry_count,
@@ -416,7 +419,7 @@ async def get_transcription_with_enrichment(
             "sentiment": enrichment.sentiment,
             "sentiment_confidence": enrichment.sentiment_confidence,
             "topics": enrichment.topics,
-            "model_used": enrichment.model_used,
+            "llm_model": enrichment.llm_model,
             "generation_time": enrichment.generation_time,
             "tokens_generated": enrichment.tokens_generated,
             "created_at": enrichment.created_at.isoformat() if enrichment.created_at else None,

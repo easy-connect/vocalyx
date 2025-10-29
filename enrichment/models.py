@@ -61,7 +61,7 @@ class Enrichment(Base):
     topics = Column(JSON, nullable=True)  # Liste de topics (optionnel)
     
     # Métadonnées de génération
-    model_used = Column(String, nullable=True)  # Ex: "mistral-7b-instruct-v0.3"
+    llm_model = Column(String, nullable=True)  # Ex: "mistral-7b-instruct-v0.3"
     generation_time = Column(Float, nullable=True)  # Temps total en secondes
     tokens_generated = Column(Integer, nullable=True)  # Nombre de tokens générés
     

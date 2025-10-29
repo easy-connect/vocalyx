@@ -222,7 +222,7 @@ class EnrichmentWorker:
             enrichment.sentiment = result.sentiment
             enrichment.sentiment_confidence = result.sentiment_confidence
             enrichment.topics = result.topics
-            enrichment.model_used = result.model_used
+            enrichment.llm_model = result.llm_model
             enrichment.generation_time = result.generation_time
             enrichment.tokens_generated = result.tokens_generated
             enrichment.finished_at = datetime.utcnow()

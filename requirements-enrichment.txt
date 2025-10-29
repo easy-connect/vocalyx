@@ -1,6 +1,11 @@
 # Requirements pour le module d'enrichissement
 # Installation: pip install -r requirements-enrichment.txt
 
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
 # LLM Engine (CPU optimisé)
 llama-cpp-python==0.2.90
 
@@ -10,8 +15,11 @@ psutil==5.9.6
 # Logging amélioré
 python-json-logger==2.0.7
 
-# Base de données (si pas déjà installé)
+# Database
 sqlalchemy==2.0.23
+
+# Rate Limiting
+slowapi==0.1.9
 
 # Validation
 pydantic==2.5.0

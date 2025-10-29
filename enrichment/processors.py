@@ -36,7 +36,7 @@ class EnrichmentResult:
     # Métadonnées
     generation_time: Optional[float] = None
     tokens_generated: Optional[int] = None
-    model_used: Optional[str] = None
+    llm_model: Optional[str] = None
     error_message: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
@@ -51,7 +51,7 @@ class EnrichmentResult:
             "topics": self.topics,
             "generation_time": self.generation_time,
             "tokens_generated": self.tokens_generated,
-            "model_used": self.model_used,
+            "llm_model": self.llm_model,
             "error_message": self.error_message
         }
 
@@ -170,7 +170,7 @@ class TranscriptionProcessor:
             sentiment_confidence=float(data.get("confiance", 0.0)),
             generation_time=round(generation_time, 2),
             tokens_generated=result.tokens_generated,
-            model_used=self.llm.model_info.get("name", "unknown")
+            llm_model=self.llm.model_info.get("name", "unknown")
         )
     
     def process_step_by_step(
@@ -284,7 +284,7 @@ class TranscriptionProcessor:
             sentiment_confidence=sentiment_confidence,
             generation_time=round(generation_time, 2),
             tokens_generated=total_tokens,
-            model_used=self.llm.model_info.get("name", "unknown"),
+            llm_model=self.llm.model_info.get("name", "unknown"),
             error_message="; ".join(errors) if errors else None
         )
     
@@ -351,7 +351,7 @@ class TranscriptionProcessor:
             sentiment_confidence=0.3,  # Faible confiance
             generation_time=round(generation_time, 2),
             tokens_generated=generation_result.tokens_generated,
-            model_used=self.llm.model_info.get("name", "unknown"),
+            llm_model=self.llm.model_info.get("name", "unknown"),
             error_message="Parsing de secours utilisé"
         )
     

@@ -11,9 +11,10 @@ dist/
 build/
 venv/
 .venv/
+.venv2/
 env/
 models/transcribe/
-
+models/enrichment/
 # Database
 *.db
 *.sqlite

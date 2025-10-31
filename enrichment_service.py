@@ -1,8 +1,8 @@
 """
-enrichment_service.py
+enrichment_service.py - VERSION CORRIGÉE
 
 Service complet d'enrichissement : API + Worker automatique
-Architecture identique à app.py (transcription)
+FIX: Le worker traite maintenant les enrichissements en status 'pending'
 """
 
 import os
@@ -49,52 +49,52 @@ worker_task = None
 
 async def auto_enrichment_worker():
     """
-    Worker automatique qui enrichit les transcriptions terminées.
-    Tourne en arrière-plan et utilise l'executor du moteur.
+    Worker automatique qui enrichit les transcriptions.
+    
+    FIX: Maintenant traite les enrichissements en status 'pending'
+    au lieu de chercher uniquement les transcriptions sans enrichissement.
     """
     from database import SessionLocal, Transcription
     from enrichment.models import Enrichment, get_pending_enrichments
     from enrichment.engine import run_enrichment_async
-    from sqlalchemy import and_
     
     logger.info("🚀 Worker automatique d'enrichissement démarré")
     
     while True:
         try:
-            # Récupérer les transcriptions à enrichir
             db = SessionLocal()
             
-            # Sous-requête pour les IDs déjà enrichis
-            subquery = db.query(Enrichment.transcription_id).filter(
-                Enrichment.status.in_(['done', 'processing', 'pending'])
-            )
-            
-            transcriptions = (
-                db.query(Transcription)
-                .filter(
-                    and_(
-                        Transcription.status == 'done',
-                        Transcription.enrichment_requested == 1,
-                        ~Transcription.id.in_(subquery)
-                    )
-                )
+            # ✅ FIX: Récupérer les enrichissements en status 'pending'
+            # au lieu de chercher les transcriptions sans enrichissement
+            pending_enrichments = (
+                db.query(Enrichment)
+                .filter(Enrichment.status == 'pending')
+                .order_by(Enrichment.created_at.asc())
                 .limit(enrichment_config.batch_size if enrichment_config else 3)
                 .all()
             )
             
             db.close()
             
-            if transcriptions:
-                logger.info(f"📊 {len(transcriptions)} transcription(s) à enrichir")
+            if pending_enrichments:
+                logger.info(f"📊 {len(pending_enrichments)} enrichissement(s) en attente")
                 
-                # Lancer les enrichissements en parallèle (non-bloquant)
+                # Lancer les enrichissements en parallèle
                 tasks = []
-                for trans in transcriptions:
-                    task = asyncio.create_task(run_enrichment_async(trans.id))
+                for enrichment in pending_enrichments:
+                    transcription_id = enrichment.transcription_id
+                    logger.info(f"[{transcription_id[:8]}] 🎨 Lancement enrichissement #{enrichment.id}")
+                    
+                    task = asyncio.create_task(run_enrichment_async(transcription_id))
                     tasks.append(task)
                 
                 # Attendre que tous soient terminés
-                await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Logger les erreurs éventuelles
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        logger.error(f"❌ Erreur enrichissement #{i+1}: {result}")
             
             # Attendre avant le prochain cycle
             poll_interval = enrichment_config.poll_interval_seconds if enrichment_config else 15
@@ -154,7 +154,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="Vocalyx Enrichment Service",
     description="Service d'enrichissement avec worker automatique intégré",
-    version="1.0.0",
+    version="1.0.1",  # Bump version
     lifespan=lifespan
 )
 
@@ -185,9 +185,10 @@ def root():
     """Page d'accueil"""
     return {
         "service": "Vocalyx Enrichment Service",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "status": "running",
-        "architecture": "API + Worker automatique (comme transcription)",
+        "fix": "Worker traite maintenant les enrichissements pending",
+        "architecture": "API + Worker automatique",
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
@@ -235,6 +236,7 @@ def health_check():
     return {
         "status": status,
         "service": "enrichment",
+        "version": "1.0.1",
         "components": {
             "api": "running",
             "engine": "loaded" if enrichment_processor else "not loaded",

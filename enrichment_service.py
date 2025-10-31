@@ -1,8 +1,6 @@
 """
-enrichment_service.py - VERSION CORRIGÉE
-
-Service complet d'enrichissement : API + Worker automatique
-FIX: Le worker traite maintenant les enrichissements en status 'pending'
+enrichment_service.py - VERSION PROFESSIONNELLE
+Architecture sans variables globales, avec injection de dépendances
 """
 
 import os
@@ -11,261 +9,246 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-# Configuration logs llama-cpp
-os.environ['LLAMA_CPP_LOG_LEVEL'] = '3'
-import warnings
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='llama_cpp')
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 import uvicorn
 
 from database import engine, Base
 from api.enrichment_endpoints import router as enrichment_router
 from logging_config import setup_logging, get_uvicorn_log_config
 
-# Import du nouveau moteur
-from enrichment.engine import (
-    initialize_enrichment_engine,
-    cleanup_enrichment_resources,
-    enrichment_config
-)
+# ✅ Import des dépendances
+from enrichment.dependencies import get_enrichment_config
+from enrichment.engine import get_engine_state, EnrichmentEngineState
+from enrichment.config import EnrichmentConfig
 
-# Initialiser le logging
 logger = setup_logging(
     log_level=os.getenv("LOG_LEVEL", "INFO"),
     log_file="logs/enrichment.log"
 )
 
-# Créer les tables
 Base.metadata.create_all(bind=engine)
 
-# Variable pour le worker automatique
-worker_task = None
 
-
-async def auto_enrichment_worker():
-    """
-    Worker automatique qui enrichit les transcriptions.
+class ServiceState:
+    """État du service (remplace les variables globales)"""
     
-    FIX: Maintenant traite les enrichissements en status 'pending'
-    au lieu de chercher uniquement les transcriptions sans enrichissement.
+    def __init__(self):
+        self.worker_task: asyncio.Task = None
+        self.is_running = False
+
+
+# Instance d'état (locale au module, mais bien encapsulée)
+service_state = ServiceState()
+
+
+async def auto_enrichment_worker(
+    config: EnrichmentConfig,
+    engine_state: EnrichmentEngineState
+):
     """
-    from database import SessionLocal, Transcription
-    from enrichment.models import Enrichment, get_pending_enrichments
+    Worker automatique - VERSION SANS GLOBALES
+    
+    Args:
+        config: Configuration passée explicitement
+        engine_state: État du moteur passé explicitement
+    """
+    from database import SessionLocal
+    from enrichment.models import Enrichment
     from enrichment.engine import run_enrichment_async
     
-    logger.info("🚀 Worker automatique d'enrichissement démarré")
+    logger.info(f"🚀 Worker démarré (batch={config.batch_size}, interval={config.poll_interval_seconds}s)")
     
-    while True:
+    while service_state.is_running:
         try:
             db = SessionLocal()
             
-            # ✅ FIX: Récupérer les enrichissements en status 'pending'
-            # au lieu de chercher les transcriptions sans enrichissement
-            pending_enrichments = (
+            pending = (
                 db.query(Enrichment)
                 .filter(Enrichment.status == 'pending')
                 .order_by(Enrichment.created_at.asc())
-                .limit(enrichment_config.batch_size if enrichment_config else 3)
+                .limit(config.batch_size)
                 .all()
             )
             
             db.close()
             
-            if pending_enrichments:
-                logger.info(f"📊 {len(pending_enrichments)} enrichissement(s) en attente")
+            if pending:
+                logger.info(f"📊 {len(pending)} enrichissement(s) en attente")
                 
-                # Lancer les enrichissements en parallèle
-                tasks = []
-                for enrichment in pending_enrichments:
-                    transcription_id = enrichment.transcription_id
-                    logger.info(f"[{transcription_id[:8]}] 🎨 Lancement enrichissement #{enrichment.id}")
-                    
-                    task = asyncio.create_task(run_enrichment_async(transcription_id))
-                    tasks.append(task)
+                tasks = [
+                    asyncio.create_task(run_enrichment_async(e.transcription_id))
+                    for e in pending
+                ]
                 
-                # Attendre que tous soient terminés
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Logger les erreurs éventuelles
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        logger.error(f"❌ Erreur enrichissement #{i+1}: {result}")
+                        logger.error(f"❌ Erreur #{i+1}: {result}")
             
-            # Attendre avant le prochain cycle
-            poll_interval = enrichment_config.poll_interval_seconds if enrichment_config else 15
-            await asyncio.sleep(poll_interval)
+            await asyncio.sleep(config.poll_interval_seconds)
             
         except asyncio.CancelledError:
-            logger.info("✅ Worker automatique arrêté")
+            logger.info("✅ Worker arrêté")
             raise
         except Exception as e:
-            logger.exception(f"❌ Erreur dans le worker automatique: {e}")
+            logger.exception(f"❌ Erreur worker: {e}")
             await asyncio.sleep(5)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- Startup ---
-    global worker_task
-    
+    """
+    Lifespan - VERSION SANS GLOBALES
+    Tout est passé explicitement, rien n'est global
+    """
     logger.info("=" * 60)
-    logger.info("🎨 Démarrage du service d'enrichissement")
-    logger.info("=" * 60)
-    
-    # Initialiser le moteur (processeur + executor)
-    await initialize_enrichment_engine()
-    
-    # Démarrer le worker automatique
-    if enrichment_config and enrichment_config.enabled:
-        logger.info("🔄 Démarrage du worker automatique...")
-        worker_task = asyncio.create_task(auto_enrichment_worker())
-        logger.info("✅ Worker automatique démarré")
-    
+    logger.info("🎨 Démarrage service enrichissement")
     logger.info("=" * 60)
     
-    yield  # --- App runs here ---
+    # ✅ Récupérer les dépendances localement
+    config = get_enrichment_config()
+    engine_state = get_engine_state()
+    
+    # Initialiser le moteur
+    await engine_state.initialize(config)
+    
+    # Démarrer le worker si enabled
+    if config.enabled:
+        logger.info("🔄 Démarrage worker automatique...")
+        service_state.is_running = True
+        
+        # ✅ Passer les dépendances explicitement au worker
+        service_state.worker_task = asyncio.create_task(
+            auto_enrichment_worker(config, engine_state)
+        )
+        
+        logger.info("✅ Worker démarré")
+    
+    logger.info("=" * 60)
+    
+    yield  # --- Service running ---
     
     # --- Shutdown ---
-    logger.info("🛑 Arrêt du service d'enrichissement")
+    logger.info("🛑 Arrêt service")
     
     # Arrêter le worker
-    if worker_task and not worker_task.done():
-        logger.info("🛑 Arrêt du worker automatique...")
-        worker_task.cancel()
+    service_state.is_running = False
+    
+    if service_state.worker_task and not service_state.worker_task.done():
+        logger.info("🛑 Arrêt worker...")
+        service_state.worker_task.cancel()
         try:
-            await worker_task
+            await service_state.worker_task
         except asyncio.CancelledError:
             pass
     
     # Nettoyer le moteur
-    await cleanup_enrichment_resources()
+    await engine_state.cleanup()
     
-    logger.info("✅ Service arrêté proprement")
+    logger.info("✅ Service arrêté")
 
 
-# Créer l'application FastAPI
+# ============================================
+# APPLICATION FASTAPI
+# ============================================
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Vocalyx Enrichment Service",
-    description="Service d'enrichissement avec worker automatique intégré",
-    version="1.0.1",  # Bump version
+    description="Service sans variables globales (Clean Architecture)",
+    version="1.1.0",
     lifespan=lifespan
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://transcription:8000",
-        os.getenv("TRANSCRIPTION_SERVICE_URL", "*")
-    ],
+    allow_origins=["http://localhost:8000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Inclure les routes
 app.include_router(enrichment_router, prefix="/api")
 
 
-# Endpoints de base
 @app.get("/", tags=["Root"])
 def root():
     """Page d'accueil"""
     return {
         "service": "Vocalyx Enrichment Service",
-        "version": "1.0.1",
-        "status": "running",
-        "fix": "Worker traite maintenant les enrichissements pending",
-        "architecture": "API + Worker automatique",
-        "endpoints": {
-            "docs": "/docs",
-            "health": "/health",
-            "trigger": "/api/enrichment/trigger/{transcription_id}",
-            "stats": "/api/enrichment/stats/summary"
-        }
+        "version": "1.1.0",
+        "architecture": "Clean (No Global Variables)",
+        "status": "running" if service_state.is_running else "stopped",
     }
 
 
 @app.get("/health", tags=["System"])
-def health_check():
-    """Health check"""
-    from enrichment.engine import enrichment_processor, enrichment_executor
+def health_check(
+    config: EnrichmentConfig = Depends(get_enrichment_config)  # ✅ Injection
+):
+    """Health check avec injection de dépendances"""
+    from enrichment.engine import get_engine_state
     from enrichment.models import get_stats_summary
     from database import SessionLocal
+    
+    engine_state = get_engine_state()
     
     status = "healthy"
     issues = []
     
-    # Vérifier le moteur
-    if enrichment_processor is None:
-        issues.append("Enrichment engine not loaded")
+    if not engine_state.is_initialized:
+        issues.append("Engine not initialized")
         status = "degraded"
     
-    if enrichment_executor is None:
-        issues.append("Executor not initialized")
+    if not service_state.is_running:
+        issues.append("Worker not running")
         status = "degraded"
     
-    # Vérifier le worker
-    global worker_task
-    if worker_task is None or worker_task.done():
-        issues.append("Auto worker not running")
-        status = "degraded"
-    
-    # Stats DB
-    try:
-        db = SessionLocal()
-        stats = get_stats_summary(db)
-        db.close()
-    except Exception as e:
-        issues.append(f"Database error: {str(e)}")
-        status = "unhealthy"
-        stats = None
+    db = SessionLocal()
+    stats = get_stats_summary(db)
+    db.close()
     
     return {
         "status": status,
         "service": "enrichment",
-        "version": "1.0.1",
+        "version": "1.1.0",
         "components": {
             "api": "running",
-            "engine": "loaded" if enrichment_processor else "not loaded",
-            "executor": "running" if enrichment_executor else "not running",
-            "auto_worker": "running" if worker_task and not worker_task.done() else "stopped"
+            "engine": "initialized" if engine_state.is_initialized else "not initialized",
+            "worker": "running" if service_state.is_running else "stopped",
+        },
+        "config": {
+            "enabled": config.enabled,
+            "model": config.model_path,
+            "batch_size": config.batch_size,
+            "poll_interval": config.poll_interval_seconds
         },
         "stats": stats,
-        "timestamp": datetime.utcnow().isoformat(),
-        "issues": issues if issues else None
+        "issues": issues if issues else None,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Vocalyx Enrichment Service")
-    parser.add_argument("--host", default="0.0.0.0", help="Host")
-    parser.add_argument("--port", type=int, default=8001, help="Port")
-    parser.add_argument("--reload", action="store_true", help="Auto-reload")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
-    
-    log_config = get_uvicorn_log_config(log_level=os.getenv("LOG_LEVEL", "INFO"))
-    
-    logger.info(f"🚀 Starting Enrichment Service on {args.host}:{args.port}")
     
     uvicorn.run(
         "enrichment_service:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
-        log_config=log_config
+        log_config=get_uvicorn_log_config()
     )
